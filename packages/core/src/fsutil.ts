@@ -15,7 +15,7 @@ function errno(err: unknown): string | undefined {
  * Write via a temp file + rename so readers never see a partial file and other group
  * members can replace it later (rename only needs write access to the directory).
  */
-export function writeFileAtomic(file: string, data: string, mode = SHARED_FILE_MODE): void {
+export function writeFileAtomic(file: string, data: string | Uint8Array, mode = SHARED_FILE_MODE): void {
 	const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`);
 	try {
 		fs.writeFileSync(tmp, data, { mode });

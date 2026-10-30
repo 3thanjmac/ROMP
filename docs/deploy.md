@@ -57,7 +57,7 @@ Give the queue its credentials once (it pushes to GitHub and runs the conflict-r
 
 ```sh
 sudo -iu romp gh auth login
-sudo -iu romp omp        # then /login
+sudo -iu romp omp setup  # sign in to a provider and pick models
 ```
 
 ## 5. Add people
@@ -67,7 +67,7 @@ sudo /opt/romp/deploy/add-user.sh you you@github 7680 443
 sudo /opt/romp/deploy/add-user.sh alice alice@github 7681 8443
 ```
 
-The second argument is the person's Tailscale login (shown in the Tailscale admin console under Users). Each person then logs in to a model provider (`sudo -iu you omp`, `/login`) and sets a git identity.
+The second argument is the person's Tailscale login (shown in the Tailscale admin console under Users). The first terminal each person opens in ROMP offers OMP's setup wizard to sign in to their providers (Anthropic, OpenRouter, ...) and pick models; they can rerun it any time with `omp setup`. Each person also sets a git identity.
 
 Open `https://<vm-name>.<tailnet>.ts.net/` (you) or `https://<vm-name>.<tailnet>.ts.net:8443/` (alice), then "Add to Home Screen" to install it as an app.
 
@@ -87,9 +87,27 @@ setup = "pnpm install --frozen-lockfile"
 test = "pnpm test"
 ```
 
+## 7. Shared OMP settings
+
+`deploy/omp-defaults/` is laid out like `~/.omp/agent/`. Put the OMP files everyone should start with there (`config.yml`, `RULES.md`, `skills/`, `commands/`, `lsp.json`, `mcp.json`, ...). `add-user.sh` copies them to a new user, and every run of `install.sh` brings each user (and the `romp` service user) up to date. Users are never overwritten:
+
+- `config.yml` and other YAML/JSON files merge per setting. A setting follows the shipped value until the user changes it; from then on their value is kept.
+- Other files are replaced only while the user hasn't edited them. A file the user deleted is not restored, and a file dropped from `omp-defaults/` is removed only if the user never edited it.
+- Model choices are never copied: `models.yml` and the `config.yml` model settings (`modelRoles`, `modelPresets`, `modelTags`, `modelProviderOrder`, `modelRoleStorage`, `cycleOrder`, `enabledModels`, `disabledProviders`, `retry.fallbackChains`, `task.agentModelOverrides`) stay with each user, as does OMP's `setupVersion`. You can copy your own `config.yml` in as is.
+- Credentials, history and sessions (`*.db`, `sessions/`) are never copied, even if they end up in the folder.
+
+Each user controls this with `romp`:
+
+```sh
+romp omp-defaults          # what the next update would change
+romp omp-defaults sync     # update now
+romp omp-defaults off      # stop receiving updates (files already copied stay)
+romp omp-defaults on       # resume, and update now
+```
+
 ## Updating
 
 ```sh
 cd /opt/romp && git pull        # or copy a new tarball
-sudo /opt/romp/deploy/install.sh
+sudo /opt/romp/deploy/install.sh    # also updates everyone's shared OMP settings
 ```

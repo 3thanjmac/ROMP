@@ -6,6 +6,7 @@ import { checkpoint, shipTask } from "./checkpoint.ts";
 import { QUEUE_STATES, queueDir, type RompEnv, rompEnv } from "./env.ts";
 import { RompError } from "./errors.ts";
 import { killLiveGroups } from "./proc.ts";
+import { type OmpDefaultsResult, ompDefaultsPaths, setOmpDefaultsOptOut, syncOmpDefaults } from "./ompdefaults.ts";
 import { postReceive, preReceive, runOnce, serve } from "./queue.ts";
 import { addRepo, initRoot, listRepos, updateRepoSettings } from "./repos.ts";
 import { createTask, listTasks, removeTask, taskForPath } from "./tasks.ts";
@@ -26,6 +27,7 @@ const USAGE = `usage: romp <command>
   queue serve                                  merge queue service (run as the romp user)
   queue run-once                               process everything queued, then exit
   hook pre-receive | post-receive              hub git hooks
+  omp-defaults [status|sync|on|off]            shared OMP settings from deploy/omp-defaults (models stay yours)
 
 env: ROMP_ROOT (default /srv/romp), ROMP_WORK (default ~/romp), ROMP_QUEUE_USER (default romp)`;
 
@@ -99,6 +101,18 @@ function queueDepth(env: RompEnv): Record<string, number> {
 		}
 	}
 	return out;
+}
+
+const PENDING_VERB: Record<string, string> = { created: "would create", updated: "would update", removed: "would remove", kept: "keeps" };
+
+function printOmpDefaults(result: OmpDefaultsResult, dryRun: boolean): void {
+	if (result.optedOut) {
+		console.log("shared OMP settings are off for you (romp omp-defaults on to resume)");
+		return;
+	}
+	if (result.actions.length === 0) console.log(dryRun ? "OMP settings are up to date" : "OMP settings already up to date");
+	for (const a of result.actions)
+		console.log(`${dryRun ? PENDING_VERB[a.change] : a.change} ${a.file}${a.detail ? ` (${a.detail})` : ""}`);
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -238,6 +252,18 @@ async function main(argv: string[]): Promise<number> {
 				return 0;
 			}
 			break;
+		}
+		case "omp-defaults": {
+			const paths = ompDefaultsPaths(env);
+			const action = sub ?? "status";
+			if (action === "off") setOmpDefaultsOptOut(paths, true);
+			else if (action === "on") setOmpDefaultsOptOut(paths, false);
+			else if (action !== "status" && action !== "sync") break;
+			const dryRun = action === "status";
+			const result = action === "off" ? { optedOut: true, actions: [] } : syncOmpDefaults(paths, { dryRun });
+			if (json) print(result);
+			else printOmpDefaults(result, dryRun);
+			return 0;
 		}
 	}
 	throw new UsageError(`unknown command: ${args.positional.join(" ")}`);

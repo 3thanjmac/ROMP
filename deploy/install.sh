@@ -69,6 +69,7 @@ chmod -R g+rX "$ROMP_SRC"
 step "Commands on PATH"
 install -m 0755 "$ROMP_SRC/deploy/bin/romp" /usr/local/bin/romp
 install -m 0755 "$ROMP_SRC/deploy/bin/romp-gateway" /usr/local/bin/romp-gateway
+install -m 0644 "$ROMP_SRC/deploy/profile.d/romp-setup.sh" /etc/profile.d/romp-setup.sh
 
 step "ROMP root at $ROMP_ROOT"
 ROMP_ROOT="$ROMP_ROOT" romp init
@@ -78,6 +79,13 @@ install -m 0644 "$ROMP_SRC/deploy/systemd/romp-queue.service" /etc/systemd/syste
 systemctl daemon-reload
 systemctl enable --now romp-queue.service
 systemctl restart romp-queue.service
+
+step "Shared OMP settings ($ROMP_SRC/deploy/omp-defaults)"
+# The queue's service user plus every ROMP user; each can opt out with `romp omp-defaults off`.
+for member in romp $(getent group romp | cut -d: -f4 | tr ',' ' '); do
+	echo "$member:"
+	sudo -iu "$member" romp omp-defaults sync | sed 's/^/  /' || echo "  sync failed for $member" >&2
+done
 
 step "Restart running gateways"
 for unit_user in $(loginctl list-users --no-legend | awk '{print $2}'); do
@@ -95,5 +103,5 @@ Next, for each person who will use it:
   sudo $ROMP_SRC/deploy/add-user.sh <linux-user> <tailscale-login> <gateway-port> <https-port>
 The merge queue runs as the romp user. Give it credentials once:
   sudo -iu romp gh auth login        # GitHub pushes/PRs (or an SSH deploy key in /var/lib/romp/.ssh)
-  sudo -iu romp omp                  # then /login, so the queue can resolve conflicts with an agent
+  sudo -iu romp omp setup            # sign in to a provider and pick models, so the queue can resolve conflicts with an agent
 EOF

@@ -38,6 +38,9 @@ as_user 'command -v omp >/dev/null || [ -x ~/.bun/bin/omp ] || curl -fsSL https:
 step "ROMP OMP extension"
 as_user "mkdir -p ~/.omp/agent/extensions && ln -sfn '$ROMP_SRC/packages/core/omp-extension/romp.ts' ~/.omp/agent/extensions/romp.ts"
 
+step "Shared OMP settings"
+as_user 'romp omp-defaults sync'
+
 step "Gateway config"
 config="$home/.config/romp/gateway.toml"
 if [[ ! -f "$config" ]]; then
@@ -74,7 +77,8 @@ fi
 cat <<EOF
 
 $user is set up. Remaining manual steps:
-  1. Log in to a model provider once:   sudo -iu $user omp   (then /login)
+  1. Pick AI providers and models: the first ROMP terminal $user opens offers OMP's setup wizard
+     (or now: sudo -iu $user omp setup). Model choices are never shared between users.
   2. Set a git identity for commits:    sudo -iu $user git config --global user.name "Name"
                                         sudo -iu $user git config --global user.email "you@example.com"
 EOF
