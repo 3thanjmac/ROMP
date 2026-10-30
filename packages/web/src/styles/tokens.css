@@ -1,0 +1,264 @@
+/* The only file that holds literal values. Components use these tokens (or derive from them). */
+
+:root {
+	color-scheme: dark light;
+
+	/* Surfaces (dark, default) */
+	--bg: oklch(0.16 0.008 255);
+	--surface-1: oklch(0.19 0.009 255);
+	--surface-2: oklch(0.225 0.011 255);
+	--surface-3: oklch(0.265 0.013 255);
+	--inset: oklch(0.14 0.008 255);
+	--line: oklch(0.3 0.012 255);
+	--line-strong: oklch(0.4 0.016 255);
+	--border: 1px solid var(--line);
+
+	/* Text */
+	--fg: oklch(0.94 0.006 255);
+	--fg-muted: oklch(0.74 0.012 255);
+	--fg-subtle: oklch(0.58 0.014 255);
+
+	/* Tones */
+	--accent: oklch(0.72 0.14 245);
+	--accent-fg: oklch(0.16 0.03 245);
+	--success: oklch(0.75 0.15 152);
+	--warning: oklch(0.81 0.14 78);
+	--danger: oklch(0.69 0.18 25);
+	--info: oklch(0.74 0.12 210);
+	--violet: oklch(0.72 0.14 300);
+	--overlay: oklch(0.1 0.01 255 / 0.6);
+
+	/* Depth */
+	--shadow-sm: 0 1px 2px oklch(0 0 0 / 0.25);
+	--shadow-md: 0 4px 16px oklch(0 0 0 / 0.3);
+	--shadow-lg: 0 12px 40px oklch(0 0 0 / 0.4);
+
+	/* Interaction lightness shifts for oklch(from ...) hover/active variants */
+	--hover-l: 0.04;
+	--active-l: -0.03;
+
+	/* Terminal palette */
+	--ansi-black: oklch(0.3 0.01 255);
+	--ansi-red: oklch(0.68 0.17 25);
+	--ansi-green: oklch(0.74 0.14 150);
+	--ansi-yellow: oklch(0.8 0.13 85);
+	--ansi-blue: oklch(0.7 0.13 250);
+	--ansi-magenta: oklch(0.72 0.14 320);
+	--ansi-cyan: oklch(0.76 0.11 200);
+	--ansi-white: oklch(0.86 0.01 255);
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		color-scheme: light;
+
+		--bg: oklch(0.975 0.003 255);
+		--surface-1: oklch(1 0 0);
+		--surface-2: oklch(0.965 0.004 255);
+		--surface-3: oklch(0.93 0.006 255);
+		--inset: oklch(0.955 0.004 255);
+		--line: oklch(0.89 0.006 255);
+		--line-strong: oklch(0.8 0.01 255);
+
+		--fg: oklch(0.22 0.01 255);
+		--fg-muted: oklch(0.45 0.012 255);
+		--fg-subtle: oklch(0.58 0.012 255);
+
+		--accent: oklch(0.55 0.17 250);
+		--accent-fg: oklch(0.99 0 0);
+		--success: oklch(0.55 0.15 150);
+		--warning: oklch(0.62 0.14 70);
+		--danger: oklch(0.56 0.2 25);
+		--info: oklch(0.55 0.12 220);
+		--violet: oklch(0.52 0.17 300);
+		--overlay: oklch(0.2 0.01 255 / 0.35);
+
+		--shadow-sm: 0 1px 2px oklch(0 0 0 / 0.08);
+		--shadow-md: 0 4px 16px oklch(0 0 0 / 0.12);
+		--shadow-lg: 0 12px 40px oklch(0 0 0 / 0.18);
+
+		--hover-l: -0.04;
+		--active-l: -0.03;
+
+		--ansi-black: oklch(0.3 0.01 255);
+		--ansi-red: oklch(0.52 0.19 25);
+		--ansi-green: oklch(0.52 0.14 150);
+		--ansi-yellow: oklch(0.58 0.13 80);
+		--ansi-blue: oklch(0.5 0.16 255);
+		--ansi-magenta: oklch(0.52 0.17 320);
+		--ansi-cyan: oklch(0.54 0.11 200);
+		--ansi-white: oklch(0.8 0.01 255);
+	}
+}
+
+:root {
+	/* Derived, theme-independent */
+	--accent-soft: oklch(from var(--accent) l c h / 0.16);
+	--success-soft: oklch(from var(--success) l c h / 0.16);
+	--warning-soft: oklch(from var(--warning) l c h / 0.16);
+	--danger-soft: oklch(from var(--danger) l c h / 0.16);
+	--violet-soft: oklch(from var(--violet) l c h / 0.16);
+	--info-soft: oklch(from var(--info) l c h / 0.16);
+	--active-line: oklch(from var(--surface-2) l c h / 0.6);
+
+	--ansi-bright-black: oklch(from var(--ansi-black) calc(l + 0.08) c h);
+	--ansi-bright-red: oklch(from var(--ansi-red) calc(l + 0.08) c h);
+	--ansi-bright-green: oklch(from var(--ansi-green) calc(l + 0.08) c h);
+	--ansi-bright-yellow: oklch(from var(--ansi-yellow) calc(l + 0.08) c h);
+	--ansi-bright-blue: oklch(from var(--ansi-blue) calc(l + 0.08) c h);
+	--ansi-bright-magenta: oklch(from var(--ansi-magenta) calc(l + 0.08) c h);
+	--ansi-bright-cyan: oklch(from var(--ansi-cyan) calc(l + 0.08) c h);
+	--ansi-bright-white: oklch(from var(--ansi-white) calc(l + 0.08) c h);
+
+	/* Semantic status (components use only these for status) */
+	--task-active: var(--accent);
+	--task-conflict: var(--warning);
+	--task-queued: var(--fg-muted);
+	--task-landing: var(--violet);
+	--task-landed: var(--success);
+	--task-failed: var(--danger);
+
+	--conn-live: var(--success);
+	--conn-connecting: var(--warning);
+	--conn-reconnecting: var(--warning);
+	--conn-offline: var(--fg-subtle);
+	--conn-exited: var(--fg-subtle);
+
+	/* Spacing (4pt grid) */
+	--sp-1: 0.25rem;
+	--sp-2: 0.5rem;
+	--sp-3: 0.75rem;
+	--sp-4: 1rem;
+	--sp-6: 1.5rem;
+	--sp-8: 2rem;
+
+	/* Radii */
+	--radius-xs: 2px;
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 10px;
+	--radius-xl: 14px;
+	--radius-full: 999px;
+
+	/* Type */
+	--font-ui: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+	--text-xs: 0.75rem;
+	--text-sm: 0.8125rem;
+	--text-md: 0.875rem;
+	--text-lg: 1rem;
+	--text-xl: 1.25rem;
+	--term-font-size: 13px;
+
+	/* Motion */
+	--dur-fast: 60ms;
+	--dur: 150ms;
+	--dur-enter: 220ms;
+	--dur-exit: 160ms;
+	--dur-pulse: 1.2s;
+	--dur-shimmer: 1.2s;
+	--dur-spin: 0.9s;
+	--ease: cubic-bezier(0.2, 0, 0, 1);
+
+	/* Sizes */
+	--topbar-h: 2.5rem;
+	--bottombar-h: 3.5rem;
+	--titlebar-h: 2rem;
+	--toolbar-h: 2.25rem;
+	--row-h: 2.25rem;
+	--tap: 2.75rem;
+	--extrakeys-h: 2.75rem;
+	--pane-gap: 0.25rem;
+	--split-hit: 0.5rem;
+	--split-grip-w: 4px;
+	--split-grip-h: 1.5rem;
+	--pane-min: 120px;
+	--palette-w: 40rem;
+	--dialog-w: 28rem;
+	--menu-min-w: 12rem;
+	--menu-max-h: 24rem;
+	--toast-w: 22rem;
+	--chat-measure: 48rem;
+	--sheet-max-h: 85dvh;
+	--grip-w: 2rem;
+	--grip-h: 4px;
+	--tab-h: 1.75rem;
+	--chip-h: 1.25rem;
+	--ws-name-max: 8rem;
+	--tile-h: 4.5rem;
+	--overview-row-h: 4rem;
+	--progress-h: 2px;
+	--edge-w: 2px;
+	--seg-inset: 2px;
+	--dot-sm: 6px;
+	--dot-md: 8px;
+	--ring-w: 1.5px;
+	--map-h: 12px;
+	--map-unit: 40px;
+	--map-gap: 2px;
+	--mini-w: 2rem;
+	--mini-h: 0.875rem;
+	--icon-xs: 12px;
+	--icon-sm: 14px;
+	--icon-md: 16px;
+	--icon-lg: 20px;
+	--icon-xl: 24px;
+	--avatar-sm: 20px;
+	--avatar-md: 24px;
+	--avatar-lg: 40px;
+	--crumb-max: 12rem;
+	--path-chip-max: 16rem;
+	--address-min: 6rem;
+	--key-min-w: 2.75rem;
+	--palette-top: 20vh;
+	--palette-max-h: 60vh;
+	--field-max-h: 10lh;
+	--bubble-max-w: 85%;
+	--composer-max-h: 12lh;
+	--task-field-min-h: 3lh;
+
+	/* Safe areas and visual viewport (viewport.svelte.ts overwrites the last three at runtime) */
+	--safe-top: env(safe-area-inset-top, 0px);
+	--safe-right: env(safe-area-inset-right, 0px);
+	--safe-bottom: env(safe-area-inset-bottom, 0px);
+	--safe-left: env(safe-area-inset-left, 0px);
+	--vvh: 100dvh;
+	--vv-top: 0px;
+	--kb-inset: 0px;
+
+	/* Layers */
+	--z-pane: 1;
+	--z-pane-focused: 2;
+	--z-split: 10;
+	--z-banner: 20;
+	--z-bar: 100;
+	--z-popover: 200;
+	--z-sheet: 300;
+	--z-dialog: 400;
+	--z-toast: 500;
+	--z-tooltip: 600;
+}
+
+@media (max-width: 639px) {
+	:root {
+		--term-font-size: 12px;
+		--composer-max-h: 8lh;
+	}
+}
+
+@media (pointer: coarse) {
+	:root {
+		--titlebar-h: 2.75rem;
+		--toolbar-h: 2.75rem;
+		--row-h: 2.75rem;
+		--topbar-h: 2.75rem;
+		--split-hit: 1rem;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--dur-enter: 0ms;
+		--dur-exit: 0ms;
+	}
+}

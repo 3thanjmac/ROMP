@@ -1,0 +1,18 @@
+[Unit]
+Description=ROMP merge queue
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=romp
+Group=romp
+UMask=0002
+Environment=ROMP_ROOT=/srv/romp
+Environment=PATH=/var/lib/romp/.bun/bin:/var/lib/romp/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/romp queue serve
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

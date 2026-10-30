@@ -1,0 +1,384 @@
+/* Global base, utilities and shared control styles. Values come from tokens.css. */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+* {
+	margin: 0;
+}
+
+html,
+body {
+	height: 100%;
+	overflow: hidden;
+	overscroll-behavior: none;
+}
+
+body {
+	font-family: var(--font-ui);
+	font-size: var(--text-md);
+	line-height: 1.43;
+	color: var(--fg);
+	background: var(--bg);
+	-webkit-font-smoothing: antialiased;
+	-webkit-tap-highlight-color: transparent;
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+}
+
+@media (pointer: coarse) {
+	body {
+		font-size: var(--text-lg);
+		line-height: 1.5;
+	}
+}
+
+h1,
+h2,
+h3,
+h4 {
+	font-weight: 600;
+	text-wrap: balance;
+}
+h1 {
+	font-size: var(--text-xl);
+	line-height: 1.75rem;
+}
+h2 {
+	font-size: var(--text-lg);
+	line-height: 1.5rem;
+}
+h3 {
+	font-size: var(--text-md);
+	line-height: 1.25rem;
+}
+h4 {
+	font-size: var(--text-sm);
+}
+p {
+	text-wrap: pretty;
+}
+
+a {
+	color: var(--accent);
+	text-decoration: none;
+	&:hover {
+		text-decoration: underline;
+	}
+}
+
+img,
+svg {
+	display: block;
+}
+
+pre,
+code,
+kbd {
+	font-family: var(--font-mono);
+}
+
+:target {
+	scroll-margin-block: 5ex;
+}
+
+/* ───────────── Utilities ───────────── */
+
+.muted {
+	color: var(--fg-muted);
+}
+.subtle {
+	color: var(--fg-subtle);
+}
+.meta {
+	font-size: var(--text-xs);
+	color: var(--fg-muted);
+}
+.mono {
+	font-family: var(--font-mono);
+}
+.tabular {
+	font-variant-numeric: tabular-nums;
+}
+.truncate {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	min-width: 0;
+}
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+.field-error {
+	font-size: var(--text-xs);
+	color: var(--danger);
+	margin-top: var(--sp-1);
+}
+
+/* ───────────── Icons ───────────── */
+
+.icon {
+	--icon-size: var(--icon-md);
+	width: var(--icon-size);
+	height: var(--icon-size);
+	flex: none;
+	&[data-size="xs"] {
+		--icon-size: var(--icon-xs);
+	}
+	&[data-size="sm"] {
+		--icon-size: var(--icon-sm);
+	}
+	&[data-size="lg"] {
+		--icon-size: var(--icon-lg);
+	}
+	&[data-size="xl"] {
+		--icon-size: var(--icon-xl);
+	}
+}
+
+@keyframes spin {
+	to {
+		rotate: 1turn;
+	}
+}
+@keyframes pulse {
+	50% {
+		opacity: 0.35;
+	}
+}
+@keyframes shimmer {
+	from {
+		background-position: 150% 0;
+	}
+	to {
+		background-position: -50% 0;
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.icon[data-spin] {
+		animation: spin var(--dur-spin) linear infinite;
+	}
+}
+
+/* ───────────── Buttons ───────────── */
+
+button {
+	font: inherit;
+	color: inherit;
+	background: none;
+	border: 0;
+	padding: 0;
+	cursor: pointer;
+	text-align: inherit;
+	touch-action: manipulation;
+}
+
+button[data-variant] {
+	--btn-bg: transparent;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--sp-2);
+	min-height: calc(1lh + var(--sp-2) * 2 + 2px);
+	padding: 0 var(--sp-3);
+	border: 1px solid transparent;
+	border-radius: var(--radius-md);
+	background: var(--btn-bg);
+	font-weight: 500;
+	white-space: nowrap;
+	user-select: none;
+	transition:
+		background var(--dur-fast),
+		border-color var(--dur),
+		color var(--dur-fast);
+
+	&[data-size="sm"] {
+		min-height: calc(1lh + var(--sp-1) * 2 + 2px);
+		padding: 0 var(--sp-2);
+		font-size: var(--text-sm);
+		gap: var(--sp-1);
+	}
+
+	&:not([disabled]):hover {
+		background: oklch(from var(--btn-bg) calc(l + var(--hover-l)) c h);
+	}
+	&:not([disabled]):active {
+		background: oklch(from var(--btn-bg) calc(l + var(--active-l)) c h);
+	}
+	&[disabled] {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+}
+
+button[data-variant="primary"] {
+	--btn-bg: var(--accent);
+	color: var(--accent-fg);
+}
+button[data-variant="secondary"] {
+	--btn-bg: var(--surface-2);
+	border: var(--border);
+	color: var(--fg);
+}
+button[data-variant="ghost"] {
+	color: var(--fg-muted);
+	&:not([disabled]):hover {
+		background: var(--surface-3);
+		color: var(--fg);
+	}
+	&:not([disabled]):active {
+		background: oklch(from var(--surface-3) calc(l + var(--active-l)) c h);
+	}
+	&[aria-pressed="true"],
+	&[aria-expanded="true"] {
+		background: var(--surface-3);
+		color: var(--fg);
+	}
+}
+button[data-variant="danger"] {
+	color: var(--danger);
+	border-color: currentColor;
+	&:not([disabled]):hover {
+		background: var(--danger-soft);
+	}
+	&:not([disabled]):active {
+		background: oklch(from var(--danger) l c h / 0.24);
+	}
+}
+
+@media (pointer: coarse) {
+	button[data-variant],
+	button[data-variant][data-size="sm"] {
+		min-height: var(--tap);
+	}
+}
+
+/* ───────────── Focus ───────────── */
+
+:where(button, a, summary, [role="tab"], [role="menuitem"], [role="option"], [role="radio"], [role="row"], [tabindex]) {
+	outline: 0 solid color-mix(in srgb, var(--accent) 60%, transparent);
+	outline-offset: 1px;
+	&:focus-visible {
+		outline-width: 2px;
+	}
+}
+
+/* ───────────── Inputs ───────────── */
+
+input:not([type="checkbox"], [type="radio"], [type="range"]),
+textarea,
+select {
+	font: inherit;
+	color: var(--fg);
+	background: var(--surface-1);
+	border: var(--border);
+	border-radius: var(--radius-md);
+	padding: var(--sp-2) var(--sp-3);
+	min-height: calc(1lh + var(--sp-2) * 2 + 2px);
+	min-width: 0;
+	transition: border-color var(--dur);
+	&::placeholder {
+		color: var(--fg-subtle);
+	}
+	&:focus {
+		outline: none;
+		border-color: var(--accent);
+	}
+	&:user-invalid,
+	&[aria-invalid="true"] {
+		border-color: var(--danger);
+	}
+	&[disabled] {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+}
+
+textarea {
+	resize: none;
+	field-sizing: content;
+}
+
+@media (pointer: coarse) {
+	input,
+	textarea,
+	select {
+		font-size: 1rem;
+	}
+}
+
+label {
+	display: grid;
+	gap: var(--sp-1);
+	font-size: var(--text-sm);
+	color: var(--fg-muted);
+	> input,
+	> textarea,
+	> select {
+		color: var(--fg);
+	}
+}
+
+kbd {
+	display: inline-block;
+	font-size: var(--text-xs);
+	line-height: 1.4;
+	padding: 0 var(--sp-1);
+	border: var(--border);
+	border-radius: var(--radius-sm);
+	color: var(--fg-muted);
+	white-space: nowrap;
+}
+
+/* ───────────── Skeleton ───────────── */
+
+.skeleton {
+	background: var(--surface-2);
+	border-radius: var(--radius-sm);
+}
+@media (prefers-reduced-motion: no-preference) {
+	.skeleton {
+		background: linear-gradient(90deg, var(--surface-2) 30%, var(--surface-3) 50%, var(--surface-2) 70%) var(--surface-2);
+		background-size: 200% 100%;
+		animation: shimmer var(--dur-shimmer) linear infinite;
+	}
+}
+
+/* ───────────── Tooltip (portaled panel from lib/ui/tooltip.ts) ───────────── */
+
+.tooltip {
+	position: fixed;
+	top: 0;
+	left: 0;
+	z-index: var(--z-tooltip);
+	max-width: var(--toast-w);
+	padding: var(--sp-1) var(--sp-2);
+	background: var(--surface-3);
+	color: var(--fg);
+	font-family: var(--font-ui);
+	font-size: var(--text-xs);
+	line-height: 1.4;
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-md);
+	pointer-events: none;
+	white-space: pre-line;
+}
+
+/* ───────────── Scrollbars ───────────── */
+
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--line-strong) transparent;
+}

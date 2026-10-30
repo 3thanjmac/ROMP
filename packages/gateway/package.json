@@ -1,0 +1,22 @@
+{
+  "name": "@romp/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "romp-gateway": "./src/main.ts"
+  },
+  "scripts": {
+    "start": "bun src/main.ts",
+    "check": "tsc -p .",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@romp/core": "workspace:*",
+    "@romp/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "^6.0.3"
+  }
+}

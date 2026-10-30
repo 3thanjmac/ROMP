@@ -1,0 +1,2 @@
+#!/bin/sh
+exec bun "${ROMP_SRC:-/opt/romp}/packages/gateway/src/main.ts" "$@"

@@ -1,0 +1,2 @@
+#!/bin/sh
+exec bun "${ROMP_SRC:-/opt/romp}/packages/core/src/cli.ts" "$@"

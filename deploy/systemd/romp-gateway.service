@@ -1,0 +1,17 @@
+[Unit]
+Description=ROMP gateway
+After=network-online.target
+
+[Service]
+Type=simple
+UMask=0002
+Environment=ROMP_ROOT=/srv/romp
+Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/romp-gateway --config %h/.config/romp/gateway.toml
+Restart=on-failure
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target
