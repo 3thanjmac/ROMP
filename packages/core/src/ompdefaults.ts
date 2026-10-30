@@ -57,7 +57,10 @@ export interface OmpDefaultsResult {
 /** Model files each user configures for themselves. */
 const PERSONAL_FILES: Record<string, true> = { "models.yml": true, "models.yaml": true, "models.json": true };
 const SETTINGS_FILES: Record<string, true> = { "config.yml": true, "config.yaml": true };
-/** Settings in `config.yml` that choose models or providers, plus OMP's own onboarding state. */
+/**
+ * Settings in `config.yml` that choose models or providers, plus per-person consent and OMP's
+ * own onboarding state.
+ */
 const PERSONAL_SETTINGS: readonly (readonly string[])[] = [
 	["modelRoles"],
 	["modelPresets"],
@@ -68,10 +71,12 @@ const PERSONAL_SETTINGS: readonly (readonly string[])[] = [
 	["enabledModels"],
 	["disabledProviders"],
 	["retry", "fallbackChains"],
-	["task", "agentModelOverrides"],
+	["dev", "autoqaConsent"],
 	// Copying this would mark OMP's setup wizard (provider sign-in, model picker) as already done.
 	["setupVersion"],
 ];
+/** Agent → model overrides are shared only when they name roles (`@smol`), never concrete models. */
+const AGENT_OVERRIDES = ["task", "agentModelOverrides"] as const;
 
 const STRUCTURED_RE = /\.(ya?ml|json)$/;
 /** Credentials, history and sessions: never shipped even if copied into the defaults by mistake. */
@@ -181,6 +186,15 @@ function stripPersonal(rel: string, value: JsonObject): JsonObject {
 	if (SETTINGS_FILES[rel] !== true) return value;
 	const copy = structuredClone(value);
 	for (const keys of PERSONAL_SETTINGS) setPath(copy, keys, undefined);
+	const overrides = getPath(copy, AGENT_OVERRIDES);
+	if (isObject(overrides)) {
+		for (const [agent, selector] of Object.entries(overrides)) {
+			const selectors = Array.isArray(selector) ? selector : [selector];
+			if (!selectors.every((s) => typeof s === "string" && s.startsWith("@"))) {
+				setPath(copy, [...AGENT_OVERRIDES, agent], undefined);
+			}
+		}
+	}
 	return copy;
 }
 
@@ -188,6 +202,12 @@ interface Planned {
 	action?: OmpDefaultsAction;
 	/** Contents to write into the agent directory (`null` deletes the file). */
 	write?: { data: string | Uint8Array; mode: number } | null;
+}
+
+/** Setting paths for a report line; a first sync can touch dozens, so long lists are cut short. */
+function listSettings(paths: string[]): string {
+	const LIMIT = 6;
+	return paths.length <= LIMIT ? paths.join(", ") : `${paths.slice(0, LIMIT).join(", ")} and ${paths.length - LIMIT} more`;
 }
 
 function planStructured(rel: string, theirsText: string | null, baseText: string | null, target: string, sourceMode: number): Planned {
@@ -227,9 +247,9 @@ function planStructured(rel: string, theirsText: string | null, baseText: string
 		else held.push(keys.join("."));
 	}
 	if (applied.length === 0) {
-		return held.length ? { action: { file: rel, change: "kept", detail: `your values for ${held.join(", ")}` } } : {};
+		return held.length ? { action: { file: rel, change: "kept", detail: `your values for ${listSettings(held)}` } } : {};
 	}
-	const detail = held.length ? `${applied.join(", ")}; kept your ${held.join(", ")}` : applied.join(", ");
+	const detail = held.length ? `${listSettings(applied)}; kept your ${listSettings(held)}` : listSettings(applied);
 	const mode = fs.statSync(target).mode & 0o777;
 	if (Object.keys(mine).length === 0) return { action: { file: rel, change: "removed", detail }, write: null };
 	return { action: { file: rel, change: "updated", detail }, write: { data: serialize(rel, mine), mode } };

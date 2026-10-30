@@ -1,0 +1,605 @@
+theme:
+  dark: titanium
+  light: light
+setupVersion: 2
+defaultThinkingLevel: auto
+retry:
+  waitForUsageReset: true
+  maxDelayMs: 0
+modelRoles:
+  smol: anthropic/claude-haiku-5-5:high
+  tiny: anthropic/claude-haiku-5-5:medium
+  designer: openrouter/moonshotai/kimi-k3.1-pro:max
+  vision: openrouter/moonshotai/kimi-k3.1-pro:max
+  advisor: openrouter/z-ai/glm-5.3-flash:max
+  default: anthropic/claude-opus-5-5:high
+  slow: anthropic/claude-fable-5-1
+task:
+  enableEffort: true
+  maxEffort: high
+  showResolvedModelBadge: true
+  agentModelOverrides:
+    scout: "@smol"
+    sonic: "@smol"
+    task: "@default"
+    reviewer: "@slow:high"
+    security-reviewer: "@slow:high"
+  disabledAgents:
+    - designer
+  softRequestBudget: 80
+disabledExtensions: []
+tools:
+  approvalMode: yolo
+  approval:
+    bash: allow
+    eval: allow
+    task: allow
+    hub: allow
+    browser: allow
+    debug: allow
+    ast_edit: allow
+lsp:
+  diagnosticsOnWrite: true
+  diagnosticsOnEdit: true
+github:
+  enabled: true
+cycleOrder:
+  - default
+  - smol
+  - designer
+  - tiny
+  - advisor
+memory:
+  backend: local
+autolearn:
+  enabled: true
+bashInterceptor:
+  enabled: true
+  patterns:
+    - pattern: ^\s*(pnpm|npm|yarn|bun|npx|pnpx|vite|nodemon)\s+(run\s+)?(dev|start|serve|watch|preview)\b
+      tool: hub
+      message: 'A dev server is almost certainly already running: list its port with `node ~/.omp/agent/bin/dev-servers.mjs` and reuse it. Only when nothing is listening, start a supervised process with the `hub` tool (op:"start").'
+bash:
+  patterns:
+    - match: "*env.prod*"
+      approval: deny
+    - match: "*--no-preserve-root*"
+      approval: deny
+    - match: "*shred /dev/*"
+      approval: deny
+    - match: "*> /dev/sd*"
+      approval: deny
+    - match: "*:(){*:|:*"
+      approval: deny
+    - match: "*:|:&*"
+      approval: deny
+    - match: "*curl*|*bash*"
+      approval: prompt
+    - match: "*curl*|*sh*"
+      approval: prompt
+    - match: "*wget*|*bash*"
+      approval: prompt
+    - match: "*wget*|*sh*"
+      approval: prompt
+    - match: "*/etc/passwd*"
+      approval: prompt
+    - match: "*/etc/shadow*"
+      approval: prompt
+    - match: "*/etc/sudoers*"
+      approval: prompt
+    - match: "*chown -R * /*"
+      approval: prompt
+    - match: "*cryptsetup *"
+      approval: prompt
+    - match: "*nc -e *"
+      approval: prompt
+    - match: "*ncat -e *"
+      approval: prompt
+    - match: "*kill -9 1"
+      approval: prompt
+    - match: "*kill -9 1 *"
+      approval: prompt
+    - match: "*shutdown*"
+      approval: prompt
+    - match: "*poweroff*"
+      approval: prompt
+    - match: "*reboot*"
+      approval: prompt
+    - match: "*rm -fr /*"
+      approval: prompt
+    - match: wrangler kv*--local*
+      approval: allow
+    - match: pnpm wrangler kv*--local*
+      approval: allow
+    - match: pnpm exec wrangler kv*--local*
+      approval: allow
+    - match: "*supabase db reset*--linked*"
+      approval: deny
+    - match: "*supabase db reset*--project-ref*"
+      approval: deny
+    - match: "*supabase db reset*--db-url*"
+      approval: deny
+    - match: "*wrangler deploy*"
+      approval: deny
+    - match: "*wrangler versions deploy*"
+      approval: deny
+    - match: "*wrangler pages deploy*"
+      approval: deny
+    - match: "*wrangler delete*"
+      approval: deny
+    - match: "*pnpm deploy:*"
+      approval: deny
+    - match: "*secrets:push*"
+      approval: deny
+    - match: "*git push --force*"
+      approval: deny
+    - match: "*git push -f *"
+      approval: deny
+    - match: "*git push --mirror*"
+      approval: deny
+    - match: "*git reset --hard*"
+      approval: deny
+    - match: "*git clean -*"
+      approval: deny
+    - match: "*git filter-branch*"
+      approval: deny
+    - match: "*git filter-repo*"
+      approval: deny
+    - match: "*mkfs*"
+      approval: deny
+    - match: "*dd if=*of=/dev/*"
+      approval: deny
+    - match: "*rm -rf ~*"
+      approval: deny
+    - match: "*rm -rf $HOME*"
+      approval: deny
+    - match: "*npm publish*"
+      approval: deny
+    - match: "*pnpm publish*"
+      approval: deny
+    - match: "*yarn publish*"
+      approval: deny
+    - match: "*cargo publish*"
+      approval: deny
+    - match: "*terraform destroy*"
+      approval: deny
+    - match: "*supabase*--linked*"
+      approval: prompt
+    - match: "*supabase*--project-ref*"
+      approval: prompt
+    - match: "*supabase*--db-url*"
+      approval: prompt
+    - match: "*supabase db push*"
+      approval: prompt
+    - match: "*supabase db pull*"
+      approval: prompt
+    - match: "*supabase db dump*"
+      approval: prompt
+    - match: "*supabase migration repair*"
+      approval: prompt
+    - match: "*supabase link*"
+      approval: prompt
+    - match: "*supabase secrets set*"
+      approval: prompt
+    - match: "*supabase secrets unset*"
+      approval: prompt
+    - match: "*supabase functions deploy*"
+      approval: prompt
+    - match: "*supabase projects create*"
+      approval: prompt
+    - match: "*supabase projects delete*"
+      approval: prompt
+    - match: "*supabase projects api-keys*"
+      approval: prompt
+    - match: "*supabase branches *"
+      approval: prompt
+    - match: "*supabase network-restrictions*"
+      approval: prompt
+    - match: "*supabase ssl-enforcement*"
+      approval: prompt
+    - match: "*supabase postgres-config*"
+      approval: prompt
+    - match: "*wrangler triggers deploy*"
+      approval: prompt
+    - match: "*wrangler rollback*"
+      approval: prompt
+    - match: "*wrangler secret put*"
+      approval: prompt
+    - match: "*wrangler secret delete*"
+      approval: prompt
+    - match: "*wrangler secret bulk*"
+      approval: prompt
+    - match: "*wrangler kv key put*"
+      approval: prompt
+    - match: "*wrangler kv key delete*"
+      approval: prompt
+    - match: "*wrangler kv bulk*"
+      approval: prompt
+    - match: "*wrangler kv namespace create*"
+      approval: prompt
+    - match: "*wrangler kv namespace delete*"
+      approval: prompt
+    - match: "*wrangler kv namespace rename*"
+      approval: prompt
+    - match: "*wrangler d1 execute*--remote*"
+      approval: prompt
+    - match: "*wrangler d1 migrations apply*--remote*"
+      approval: prompt
+    - match: "*wrangler d1 delete*"
+      approval: prompt
+    - match: "*wrangler r2 object put*"
+      approval: prompt
+    - match: "*wrangler r2 object delete*"
+      approval: prompt
+    - match: "*wrangler r2 bucket create*"
+      approval: prompt
+    - match: "*wrangler r2 bucket delete*"
+      approval: prompt
+    - match: "*wrangler queues create*"
+      approval: prompt
+    - match: "*wrangler queues delete*"
+      approval: prompt
+    - match: "*wrangler queues purge*"
+      approval: prompt
+    - match: "*npm install*"
+      approval: prompt
+      eval: true
+    - match: "*npm i *"
+      approval: prompt
+      eval: true
+    - match: "*npm i"
+      approval: prompt
+      eval: true
+    - match: "*npm ci*"
+      approval: prompt
+      eval: true
+    - match: "*npm add *"
+      approval: prompt
+      eval: true
+    - match: "*npm un*"
+      approval: prompt
+      eval: true
+    - match: "*npm remove*"
+      approval: prompt
+      eval: true
+    - match: "*npm rm*"
+      approval: prompt
+      eval: true
+    - match: "*npm up*"
+      approval: prompt
+      eval: true
+    - match: "*npm self-update*"
+      approval: prompt
+      eval: true
+    - match: yarn
+      approval: prompt
+      eval: true
+    - match: "*yarn add *"
+      approval: prompt
+      eval: true
+    - match: "*yarn install*"
+      approval: prompt
+      eval: true
+    - match: "*yarn remove *"
+      approval: prompt
+      eval: true
+    - match: "*yarn up*"
+      approval: prompt
+      eval: true
+    - match: "*yarn global add *"
+      approval: prompt
+      eval: true
+    - match: "*yarn global remove *"
+      approval: prompt
+      eval: true
+    - match: "*yarn global upgrade*"
+      approval: prompt
+      eval: true
+    - match: "*bun add *"
+      approval: prompt
+      eval: true
+    - match: "*bun install*"
+      approval: prompt
+      eval: true
+    - match: "*bun i *"
+      approval: prompt
+      eval: true
+    - match: "*bun i"
+      approval: prompt
+      eval: true
+    - match: "*bun remove *"
+      approval: prompt
+      eval: true
+    - match: "*bun rm *"
+      approval: prompt
+      eval: true
+    - match: "*bun up*"
+      approval: prompt
+      eval: true
+    - match: "*pip install*"
+      approval: prompt
+      eval: true
+    - match: "*pip3 install*"
+      approval: prompt
+      eval: true
+    - match: "*pip uninstall*"
+      approval: prompt
+      eval: true
+    - match: "*pip3 uninstall*"
+      approval: prompt
+      eval: true
+    - match: "*uv add *"
+      approval: prompt
+      eval: true
+    - match: "*uv remove *"
+      approval: prompt
+      eval: true
+    - match: "*uv sync*"
+      approval: prompt
+      eval: true
+    - match: "*uv lock --upgrade*"
+      approval: prompt
+      eval: true
+    - match: "*uv lock -U*"
+      approval: prompt
+      eval: true
+    - match: "*uv tool install *"
+      approval: prompt
+      eval: true
+    - match: "*uv tool uninstall *"
+      approval: prompt
+      eval: true
+    - match: "*uv tool upgrade *"
+      approval: prompt
+      eval: true
+    - match: "*uv python install*"
+      approval: prompt
+      eval: true
+    - match: "*uv python uninstall*"
+      approval: prompt
+      eval: true
+    - match: "*uv self update*"
+      approval: prompt
+      eval: true
+    - match: "*cargo add *"
+      approval: prompt
+      eval: true
+    - match: "*cargo remove *"
+      approval: prompt
+      eval: true
+    - match: "*cargo rm *"
+      approval: prompt
+      eval: true
+    - match: "*cargo install *"
+      approval: prompt
+      eval: true
+    - match: "*cargo uninstall *"
+      approval: prompt
+      eval: true
+    - match: "*cargo update*"
+      approval: prompt
+      eval: true
+    - match: "*cargo binstall *"
+      approval: prompt
+      eval: true
+    - match: "*rustup update*"
+      approval: prompt
+      eval: true
+    - match: "*rustup toolchain install *"
+      approval: prompt
+      eval: true
+    - match: "*rustup toolchain uninstall *"
+      approval: prompt
+      eval: true
+    - match: "*rustup component add *"
+      approval: prompt
+      eval: true
+    - match: "*rustup component remove *"
+      approval: prompt
+      eval: true
+    - match: "*rustup target add *"
+      approval: prompt
+      eval: true
+    - match: "*rustup target remove *"
+      approval: prompt
+      eval: true
+    - match: "*rustup self update*"
+      approval: prompt
+      eval: true
+    - match: "*cargo install-update*"
+      approval: prompt
+      eval: true
+    - match: "*cargo upgrade*"
+      approval: prompt
+      eval: true
+    - match: "*cargo quickinstall *"
+      approval: prompt
+      eval: true
+    - match: "*cargo-binstall *"
+      approval: prompt
+      eval: true
+    - match: "*cargo +* install *"
+      approval: prompt
+      eval: true
+    - match: "*cargo +* uninstall *"
+      approval: prompt
+      eval: true
+    - match: "*cargo +* update"
+      approval: prompt
+      eval: true
+    - match: "*cargo +* update *"
+      approval: prompt
+      eval: true
+    - match: "*rustup install *"
+      approval: prompt
+      eval: true
+    - match: "*rustup uninstall *"
+      approval: prompt
+      eval: true
+    - match: "*rustup toolchain add *"
+      approval: prompt
+      eval: true
+    - match: "*rustup toolchain remove *"
+      approval: prompt
+      eval: true
+    - match: "*rustup default *"
+      approval: prompt
+      eval: true
+    - match: "*rustup self uninstall*"
+      approval: prompt
+      eval: true
+    - match: "*go get *"
+      approval: prompt
+      eval: true
+    - match: "*go install *"
+      approval: prompt
+      eval: true
+    - match: "*dotnet add *package *"
+      approval: prompt
+      eval: true
+    - match: "*dotnet remove *package *"
+      approval: prompt
+      eval: true
+    - match: "*dotnet tool install *"
+      approval: prompt
+      eval: true
+    - match: "*dotnet tool uninstall *"
+      approval: prompt
+      eval: true
+    - match: "*dotnet tool update *"
+      approval: prompt
+      eval: true
+    - match: "*dotnet workload install *"
+      approval: prompt
+      eval: true
+    - match: "*dotnet workload update*"
+      approval: prompt
+      eval: true
+    - match: "*dotnet workload uninstall *"
+      approval: prompt
+      eval: true
+    - match: "*pacman -S *"
+      approval: prompt
+      eval: true
+    - match: "*pacman -Sy*"
+      approval: prompt
+      eval: true
+    - match: "*pacman -Su*"
+      approval: prompt
+      eval: true
+    - match: "*pacman -R*"
+      approval: prompt
+      eval: true
+    - match: "*pacman -U *"
+      approval: prompt
+      eval: true
+    - match: "*paru -S *"
+      approval: prompt
+      eval: true
+    - match: "*paru -Sy*"
+      approval: prompt
+      eval: true
+    - match: "*paru -Su*"
+      approval: prompt
+      eval: true
+    - match: "*paru -R*"
+      approval: prompt
+      eval: true
+    - match: "*paru -U *"
+      approval: prompt
+      eval: true
+    - match: "*yay -S *"
+      approval: prompt
+      eval: true
+    - match: "*yay -Sy*"
+      approval: prompt
+      eval: true
+    - match: "*yay -Su*"
+      approval: prompt
+      eval: true
+    - match: "*yay -R*"
+      approval: prompt
+      eval: true
+    - match: "*yay -U *"
+      approval: prompt
+      eval: true
+    - match: paru
+      approval: prompt
+      eval: true
+    - match: yay
+      approval: prompt
+      eval: true
+    - match: "*omp install *"
+      approval: prompt
+      eval: true
+    - match: "*omp update*"
+      approval: prompt
+      eval: true
+    - match: "*omp plugin install *"
+      approval: prompt
+      eval: true
+    - match: "*omp plugin uninstall *"
+      approval: prompt
+      eval: true
+    - match: "*omp plugin link *"
+      approval: prompt
+      eval: true
+    - match: "*omp plugin upgrade*"
+      approval: prompt
+      eval: true
+    - match: "*omp skill install *"
+      approval: prompt
+      eval: true
+    - match: "*omp skill update*"
+      approval: prompt
+      eval: true
+    - match: "*omp skill uninstall *"
+      approval: prompt
+      eval: true
+    - match: "*sudo *"
+      approval: prompt
+    - match: "*rm -rf /*"
+      approval: prompt
+    - match: "*rm -rf .git*"
+      approval: prompt
+    - match: "*chmod -R 777*"
+      approval: prompt
+    - match: "*killall *"
+      approval: prompt
+    - match: "*id_rsa*"
+      approval: prompt
+    - match: "*id_ed25519*"
+      approval: prompt
+    - match: "*.aws/credentials*"
+      approval: prompt
+    - match: "*terraform apply*"
+      approval: prompt
+    - match: "*kubectl delete*"
+      approval: prompt
+    - match: "*docker system prune*"
+      approval: prompt
+    - match: "*docker push*"
+      approval: prompt
+    - match: "*gh release create*"
+      approval: prompt
+    - match: "*gh pr merge*"
+      approval: prompt
+    - match: "*vercel --prod*"
+      approval: prompt
+    - match: "*fly deploy*"
+      approval: prompt
+composer:
+  shape: box
+skills:
+  ignoredSkills:
+    - caveman*
+    - you-*
+edit:
+  autoRepair:
+    enabled: true
+compaction:
+  idleEnabled: true
+dev:
+  autoqaConsent: granted
+claudeResets:
+  autoRedeem: "no"

@@ -1,0 +1,18 @@
+{
+  "servers": {
+    "tsgo": {
+      "command": "tsgo",
+      "args": ["--lsp", "--stdio"],
+      "fileTypes": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
+      "rootMarkers": ["tsconfig.json", "jsconfig.json"],
+      "warmupTimeoutMs": 60000
+    },
+    "typescript-language-server": {
+      "disabled": true
+    },
+    "typescript-native": {
+      "disabled": true
+    }
+  },
+  "idleTimeoutMs": 1800000
+}

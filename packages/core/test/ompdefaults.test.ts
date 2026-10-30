@@ -19,14 +19,22 @@ const get = (dir: string, rel: string) => fs.readFileSync(path.join(dir, rel), "
 const yaml = (dir: string, rel: string) => Bun.YAML.parse(get(dir, rel)) as Record<string, unknown>;
 
 describe("omp defaults", () => {
-	test("a new user gets every default except model choices and onboarding state", () => {
+	test("a new user gets every default except model choices, consent and onboarding state", () => {
 		const p = setup("fresh");
-		put(p.source, "config.yml", "theme:\n  dark: night\nmodelRoles:\n  default: anthropic/x\nretry:\n  maxRetries: 4\n  fallbackChains:\n    default: [openrouter/y]\nsetupVersion: 2\n");
+		put(
+			p.source,
+			"config.yml",
+			"theme:\n  dark: night\nmodelRoles:\n  default: anthropic/x\nretry:\n  maxRetries: 4\n  fallbackChains:\n    default: [openrouter/y]\nsetupVersion: 2\ndev:\n  autoqaConsent: granted\ntask:\n  agentModelOverrides:\n    scout: \"@smol\"\n    reviewer: anthropic/z\n",
+		);
 		put(p.source, "models.yml", "providers: {}\n");
 		put(p.source, "skills/review/SKILL.md", "# review\n");
 		put(p.source, "agent.db", "secret");
 		syncOmpDefaults(p);
-		expect(yaml(p.agentDir, "config.yml")).toEqual({ theme: { dark: "night" }, retry: { maxRetries: 4 } });
+		expect(yaml(p.agentDir, "config.yml")).toEqual({
+			theme: { dark: "night" },
+			retry: { maxRetries: 4 },
+			task: { agentModelOverrides: { scout: "@smol" } },
+		});
 		expect(get(p.agentDir, "skills/review/SKILL.md")).toBe("# review\n");
 		expect(fs.existsSync(path.join(p.agentDir, "models.yml"))).toBe(false);
 		expect(fs.existsSync(path.join(p.agentDir, "agent.db"))).toBe(false);

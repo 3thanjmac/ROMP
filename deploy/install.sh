@@ -42,6 +42,12 @@ if ! command -v pnpm >/dev/null; then
 fi
 pnpm --version
 
+step "tsgo (TypeScript language server in the shared OMP settings)"
+if ! command -v tsgo >/dev/null; then
+	BUN_INSTALL=/usr/local bun add --global @typescript/native-preview >/dev/null
+fi
+tsgo --version
+
 step "mergiraf $MERGIRAF_VERSION"
 if ! mergiraf --version 2>/dev/null | grep -q "$MERGIRAF_VERSION"; then
 	case "$(uname -m)" in

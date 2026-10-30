@@ -1,0 +1,18 @@
+providers:
+  anthropic:
+    modelOverrides:
+      claude-opus-5-5:
+        thinking:
+          mode: anthropic-adaptive
+          efforts: [low, medium, high]
+          supportsDisplay: true
+  openrouter:
+    modelOverrides:
+      moonshotai/kimi-k3:
+        compat:
+          openRouterRouting:
+            order: [modal/mxfp4, baseten/fp8]
+      z-ai/glm-5.3-flash:
+        compat:
+          openRouterRouting:
+            order: [baseten/fp8, makora]

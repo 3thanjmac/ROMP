@@ -59,7 +59,7 @@ You need a Debian 13 machine or VM, a Tailscale account, and an account with a m
    ```sh
    sudo /opt/romp/deploy/install.sh
    ```
-   This installs Bun, pnpm, Node, git, mergiraf and gh, and creates the `romp` group and service user. It also builds the web app, puts `romp` and `romp-gateway` on PATH, initialises `/srv/romp`, and starts `romp-queue.service`. Re-run it after every update.
+   This installs Bun, pnpm, tsgo, Node, git, mergiraf and gh, and creates the `romp` group and service user. It also builds the web app, puts `romp` and `romp-gateway` on PATH, initialises `/srv/romp`, and starts `romp-queue.service`. Re-run it after every update.
 3. **Give the merge queue credentials** so it can push and resolve conflicts:
    ```sh
    sudo -iu romp gh auth login     # or an SSH deploy key in /var/lib/romp/.ssh
