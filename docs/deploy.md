@@ -83,7 +83,6 @@ romp repo set project land=pr        # optional: land through PRs with auto-merg
 Commit a `.romp.toml` to the project to tell ROMP how to install dependencies in a new worktree and how to test before landing:
 
 ```toml
-[romp]
 setup = "pnpm install --frozen-lockfile"
 test = "pnpm test"
 ```
