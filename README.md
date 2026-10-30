@@ -44,8 +44,7 @@ flowchart LR
 | `packages/web` | Svelte 5 + Vite web app |
 | `deploy/` | `install.sh`, `add-user.sh`, systemd units, command wrappers |
 | `docs/deploy.md` | Detailed TrueNAS + Tailscale setup |
-| `docs/design.md` | UI design spec |
-| `docs/HANDOFF.md` | Current status and known gaps |
+| `docs/design.md` | Web app design notes |
 
 ## Setup
 
@@ -69,10 +68,10 @@ You need a Debian 13 machine or VM, a Tailscale account, and an account with a m
 4. **Add each person:**
    ```sh
    #                              linux-user  tailscale-login  gateway-port  https-port
-   sudo /opt/romp/deploy/add-user.sh ethan   ethan@github     7680          443
+   sudo /opt/romp/deploy/add-user.sh you     you@github       7680          443
    sudo /opt/romp/deploy/add-user.sh alice   alice@github     7681          8443
    ```
-   This creates the account, installs OMP and the ROMP extension, writes `~/.config/romp/gateway.toml`, enables the `romp-gateway` user service, and runs `tailscale serve` (Tailscale serves HTTPS only on 443, 8443 and 10000). Each person then logs in to a model provider (`sudo -iu ethan omp`, then `/login`) and sets `git config --global user.name` / `user.email`.
+   This creates the account, installs OMP and the ROMP extension, writes `~/.config/romp/gateway.toml`, enables the `romp-gateway` user service, and runs `tailscale serve` (Tailscale serves HTTPS only on 443, 8443 and 10000). Each person then logs in to a model provider (`sudo -iu you omp`, then `/login`) and sets `git config --global user.name` / `user.email`.
 5. **Open** `https://<vm>.<tailnet>.ts.net/` (port 443) or `https://<vm>.<tailnet>.ts.net:8443/`, and use "Add to Home Screen" on a phone.
 6. **Add a repository** from the Tasks window (**Add repo**), or on the VM:
    ```sh
@@ -100,6 +99,8 @@ You need a Debian 13 machine or VM, a Tailscale account, and an account with a m
 | `web_dir` | `packages/web/dist` | Built web app |
 | `state_dir` | `~/.local/state/romp` | Saved layout and agent sessions |
 
+The gateway trusts the Tailscale identity headers only on connections from sockets owned by root (tailscaled) or by the gateway's own user, so another local user can't impersonate someone. Agents and terminals can only start in directories inside `roots`.
+
 ## Using it
 
 - Open a window with **+** (phone) or **Alt O** (desktop). Other shortcuts: **Alt ←/→** move focus, **Alt T** switch scroll/tile, **Alt R** cycle column width, **Alt Enter** new terminal, **Alt W** close, **Alt 1…9** switch workspace. **Alt Shift /** lists all shortcuts.
@@ -125,8 +126,16 @@ wsl -d Debian -u <you> -- bash /mnt/c/path/to/ROMP/scripts/wsl-dev-gateway.sh   
 pnpm dev:web                                                                     # Vite on 5173, proxies to 7681
 ```
 
-The script copies the checkout to `/opt/romp-dev` and starts a `romp-gateway-dev` user unit. Port 7681 is used because Windows reserves 7680 for Delivery Optimization; set `ROMP_GATEWAY` to point Vite elsewhere. WSL stops the distro when no `wsl.exe` process is attached, so keep one open (`wsl -d Debian -- sleep infinity`).
+The script copies the checkout to `/opt/romp-dev` and starts a `romp-gateway-dev` user unit. Port 7681 is used because Windows reserves 7680 for Delivery Optimization; set `ROMP_GATEWAY` to point Vite elsewhere. WSL stops the distro when no `wsl.exe` process is attached, so keep one open (`wsl -d Debian -- sleep infinity`). In WSL shells, put `/usr/local/share/pnpm/bin` first on `PATH`; otherwise the Windows pnpm leaks in through interop and breaks installs.
 
 ## Status
 
-The first milestone is complete and verified in Debian 13 (WSL). PR landing mode, the queue's live conflict-resolver agent, and real-phone keyboard behaviour are not yet verified; see [docs/HANDOFF.md](docs/HANDOFF.md).
+The first milestone is complete and verified on Debian 13 (WSL): every part of the web app against a live gateway, live agent sessions, and two users shipping tasks through the merge queue. Not verified yet:
+
+- `pr` landing mode (needs `gh` auth and a GitHub repo with auto-merge enabled).
+- The queue's conflict-resolver agent, conflict messages injected into a live agent, and automatic re-ship after a failed landing (unit-tested, not run against a model).
+- In `pr` mode, continuing a task after GitHub squash-merges it can conflict with its own landed change (push mode handles this).
+- The terminal extra-keys row with a real phone's on-screen keyboard.
+- Overview swipe-to-close and drag-to-reorder gestures.
+- Stop sends `abort_and_restore_queue` (queued messages return to the composer); only plain `abort` was exercised live.
+- The web bundle is a single 1.1 MB chunk (mostly CodeMirror languages); code-splitting is still to do.

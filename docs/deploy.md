@@ -5,7 +5,7 @@ ROMP runs inside one Debian 13 VM. Every person gets a Linux account and their o
 ```mermaid
 flowchart LR
   P[Phone / laptop] -->|tailnet HTTPS| TS[tailscale serve in the VM]
-  TS -->|:443 → 127.0.0.1:7680| G1[romp-gateway as ethan]
+  TS -->|:443 → 127.0.0.1:7680| G1[romp-gateway as you]
   TS -->|:8443 → 127.0.0.1:7681| G2[romp-gateway as alice]
   G1 & G2 -->|romp CLI| HUB[(/srv/romp/hub)]
   HUB -->|post-receive| Q[romp-queue as romp]
@@ -37,7 +37,7 @@ sudo tailscale up --ssh --advertise-tags=tag:devbox
 From the Windows machine, either push the repo to a private GitHub repo and `git clone` it to `/opt/romp`, or copy it over Tailscale:
 
 ```powershell
-# from C:\Users\ethan\Documents\Code
+# from the folder that contains ROMP
 tar --exclude=node_modules --exclude=dist -czf romp.tgz ROMP
 scp romp.tgz <vm-name>:/tmp/
 ```
@@ -63,13 +63,13 @@ sudo -iu romp omp        # then /login
 ## 5. Add people
 
 ```sh
-sudo /opt/romp/deploy/add-user.sh ethan ethan@github 7680 443
+sudo /opt/romp/deploy/add-user.sh you you@github 7680 443
 sudo /opt/romp/deploy/add-user.sh alice alice@github 7681 8443
 ```
 
-The second argument is the person's Tailscale login (shown in the Tailscale admin console under Users). Each person then logs in to a model provider (`sudo -iu ethan omp`, `/login`) and sets a git identity.
+The second argument is the person's Tailscale login (shown in the Tailscale admin console under Users). Each person then logs in to a model provider (`sudo -iu you omp`, `/login`) and sets a git identity.
 
-Open `https://<vm-name>.<tailnet>.ts.net/` (ethan) or `https://<vm-name>.<tailnet>.ts.net:8443/` (alice), then "Add to Home Screen" to install it as an app.
+Open `https://<vm-name>.<tailnet>.ts.net/` (you) or `https://<vm-name>.<tailnet>.ts.net:8443/` (alice), then "Add to Home Screen" to install it as an app.
 
 ## 6. Add repositories
 

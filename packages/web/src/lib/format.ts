@@ -17,7 +17,7 @@ export function joinPath(dir: string, name: string): string {
 	return dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`;
 }
 
-/** `/home/ethan/romp/app` → `~/romp/app` when under `home`. */
+/** `/home/me/romp/app` → `~/romp/app` when under `home`. */
 export function tildify(path: string, home: string | null | undefined): string {
 	if (!home) return path;
 	if (path === home) return "~";

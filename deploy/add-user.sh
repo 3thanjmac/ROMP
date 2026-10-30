@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Give a Linux user their own ROMP gateway. Run as root after install.sh:
 #   sudo /opt/romp/deploy/add-user.sh <linux-user> <tailscale-login> <gateway-port> <https-port>
-# Example (you):        add-user.sh ethan  ethan@github  7680 443
+# Example (you):        add-user.sh you    you@github    7680 443
 # Example (a friend):   add-user.sh alice  alice@github  7681 8443
 # Tailscale Serve only offers HTTPS on ports 443, 8443 and 10000.
 set -euo pipefail

@@ -3,5 +3,5 @@
 {"t":"sent","reqId":"r1","kind":"prompt","text":"Use the bash tool once to run exactly: echo hello-romp."}
 {"t":"response","reqId":"r1","success":true}
 {"t":"frame","frame":{"type":"notice","level":"warning","message":"Anthropic (Claude Pro/Max) account was signed out automatically. Run /login to sign in again.","source":"auth"}}
-{"t":"response","reqId":"r1","success":false,"error":"No API key found for anthropic.\n\nUse /login, set an API key environment variable, or create /home/ethan/.omp/agent/agent.db"}
+{"t":"response","reqId":"r1","success":false,"error":"No API key found for anthropic.\n\nUse /login, set an API key environment variable, or create /home/dev/.omp/agent/agent.db"}
 {"t":"frame","frame":{"type":"prompt_result","id":"c2","agentInvoked":false,"status":"error","sessionSettled":true,"error":{"message":"No API key found for anthropic.","retryable":false}}}

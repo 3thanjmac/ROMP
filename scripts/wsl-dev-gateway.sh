@@ -1,7 +1,7 @@
 #!/bin/bash
 # Local development on Windows: mirror this checkout into WSL (Debian) and (re)start a dev gateway
 # on 127.0.0.1:7681 with authentication disabled. Run from Windows:
-#   wsl -d Debian -u ethan -- bash /mnt/c/Users/ethan/Documents/Code/ROMP/scripts/wsl-dev-gateway.sh
+#   wsl -d Debian -u <you> -- bash /mnt/c/path/to/ROMP/scripts/wsl-dev-gateway.sh
 # Then run `pnpm dev:web` on Windows (Vite on 5173 proxies to 7681).
 # Port 7680 is avoided because Windows Delivery Optimization owns it on the host.
 # WSL stops the distro when no wsl.exe process is attached; keep one open (e.g. `wsl -d Debian -- sleep infinity`).
