@@ -1,13 +1,16 @@
-# ROMP: the first time someone opens an interactive login shell (a ROMP terminal, ssh) before picking
+# ROMP login-shell setup, installed to /etc/profile.d.
+# OMP installs into bun's global bin, ~/.bun/bin, which nothing else puts on PATH.
+case ":$PATH:" in *":$HOME/.bun/bin:"*) ;; *) PATH="$HOME/.bun/bin:$PATH" ;; esac
+
+# The first time someone opens an interactive login shell (a ROMP terminal, ssh) before picking
 # AI models, offer OMP's setup wizard: provider sign-in (Anthropic, OpenRouter, ...) and model roles.
-# Model choices are personal; shared OMP settings never include them. Installed to /etc/profile.d.
+# Model choices are personal; shared OMP settings never include them.
 romp_setup_prompt() {
 	case $- in *i*) ;; *) return ;; esac
 	[ -t 0 ] && [ -t 1 ] || return
 	romp_marker="$HOME/.config/romp/omp-setup.done"
 	[ -e "$romp_marker" ] && return
-	romp_omp=$(command -v omp 2>/dev/null) || romp_omp="$HOME/.bun/bin/omp"
-	[ -x "$romp_omp" ] || return
+	romp_omp=$(command -v omp 2>/dev/null) || return
 	mkdir -p "$HOME/.config/romp"
 	if grep -q '^modelRoles:' "$HOME/.omp/agent/config.yml" 2>/dev/null; then
 		: >"$romp_marker"

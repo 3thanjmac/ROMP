@@ -39,7 +39,17 @@ sudo tailscale up --ssh --advertise-tags=tag:devbox
 
 ## 3. Copy ROMP into the VM
 
-From your workstation, either push the repo to a private GitHub repo and `git clone` it to `/opt/romp`, or copy it over Tailscale (PowerShell shown; any shell with `tar` and `scp` works the same):
+Run this step from your own account, not a root shell. The checkout at `/opt/romp` should belong to you, so `git pull` works later without `sudo`. The path must be lowercase `/opt/romp`, because the scripts and services look for exactly that path and Linux paths are case-sensitive.
+
+Either push the repo to a private GitHub repo and clone it:
+
+```sh
+sudo mkdir -p /opt/romp
+sudo chown "$USER": /opt/romp
+git clone https://github.com/<owner>/ROMP.git /opt/romp
+```
+
+Or copy it over Tailscale (PowerShell shown; any shell with `tar` and `scp` works the same):
 
 ```powershell
 # from the folder that contains ROMP
@@ -48,6 +58,7 @@ scp romp.tgz <vm-name>:/tmp/
 ```
 ```sh
 sudo mkdir -p /opt/romp && sudo tar -xzf /tmp/romp.tgz -C /opt/romp --strip-components=1
+sudo chown -R "$USER": /opt/romp
 ```
 
 ## 4. Install
@@ -125,4 +136,56 @@ These changes are the user's own values, so later updates leave them in place.
 ```sh
 cd /opt/romp && git pull        # or copy a new tarball
 sudo /opt/romp/deploy/install.sh    # also updates everyone's shared OMP settings
+```
+
+## Troubleshooting
+
+These are the errors people new to Linux tend to hit during setup. The headings quote the error message, so you can search this page for what your terminal printed.
+
+First, check who you are. The prompt ends in `$` for a normal account (`alice@debian:/opt/romp$`) and `#` for root (`root@debian:/opt/romp#`). This guide assumes your own account, with `sudo` in front of commands that need root. In a root shell `sudo` does nothing useful, so leave it off.
+
+### `Permission denied` when running a script
+
+Linux runs a file as a program only if its execute bit is set. Git stores that bit, and the scripts in `deploy/` have it, but a copy can lose it. `sudo ./deploy/install.sh` then fails with `command not found` for the same reason. Run the script through bash, or set the bit back:
+
+```sh
+sudo bash /opt/romp/deploy/install.sh
+chmod +x /opt/romp/deploy/*.sh
+```
+
+### `ROMP checkout not found at /opt/romp (set ROMP_SRC)`
+
+The repo is somewhere other than `/opt/romp`. Often it is `/opt/ROMP`, because `git clone` names the folder after the repo and Linux treats `ROMP` and `romp` as different names. Rename it:
+
+```sh
+sudo mv /opt/ROMP /opt/romp
+```
+
+Setting `ROMP_SRC` gets `install.sh` past this check, but the `romp` and `romp-gateway` commands and the systemd services still look in `/opt/romp`, so renaming is the real fix.
+
+### `detected dubious ownership` or `Permission denied` on `.git/...` during `git pull`
+
+Root owns the checkout, usually because it was cloned or extracted in a root shell or with `sudo`. Git suggests `git config --global --add safe.directory /opt/romp`, but that only silences the ownership warning. It does not let you write to the folder, so the next `git pull` fails with `cannot open '.git/FETCH_HEAD': Permission denied`. Avoid `sudo git pull` as well, because it creates more root-owned files inside `.git`. Give the folder to your account instead:
+
+```sh
+sudo chown -R "$USER": /opt/romp
+```
+
+`chown` changes who owns files. `-R` applies it to everything inside the folder. The `user:group` argument sets the owner and the group together. `"$USER":`, with nothing after the colon, means your account and your account's default group. Your shell fills in `$USER` before `sudo` runs, so it is your name, not root's.
+
+`install.sh` later moves the files into the `romp` group so the merge queue's service user can read them. It never changes the owner, so `git pull` keeps working for you. The `romp` group only exists after `install.sh` has got that far, which is why the command above doesn't name it.
+
+If you added a `safe.directory` entry, remove it once the chown is done:
+
+```sh
+git config --global --unset safe.directory /opt/romp
+```
+
+### `Your local changes to the following files would be overwritten by merge`
+
+A file in the checkout differs from the last commit, for example after editing a script on the VM or running `chmod` on it. `git status` lists the files and `git diff` shows what changed. If you don't need the change, discard it and pull again:
+
+```sh
+git restore deploy/install.sh
+git pull
 ```
