@@ -109,7 +109,7 @@ An admin can do the same by putting `sudo -iu alice` in front of each command.
 
 1. Install the Tailscale app on the phone, sign in with the same account as the login passed to `add-user.sh`, and switch the VPN on. ROMP is only reachable from devices in the tailnet.
 2. Get the address on the VM with `tailscale serve status`. It prints one URL per person, such as `https://debian.tail1234.ts.net/` for port 443 and `https://debian.tail1234.ts.net:8443/` for 8443. Open it in the phone's browser. The first load can take a few seconds while Tailscale fetches the HTTPS certificate.
-3. Install it as an app. In Safari, tap Share, then Add to Home Screen. In Chrome on Android, open the ⋮ menu and choose Add to Home screen (or Install app).
+3. Install it as an app. In Safari, tap Share, then Add to Home Screen. In Chrome on Android, open the ⋮ menu and choose Add to Home screen (or Install app). iOS reads the app's status-bar settings only when it is added, so after a ROMP update that changes them, remove the Home Screen icon and add it again.
 4. The first terminal opened in ROMP offers OMP's setup wizard, which signs in to AI providers (Anthropic, OpenRouter, ...) and picks models. `omp setup` reruns it at any time.
 
 A laptop works the same way: join the tailnet and open the same URL in any browser.

@@ -3,7 +3,7 @@
 	import { FitAddon } from "@xterm/addon-fit";
 	import { WebLinksAddon } from "@xterm/addon-web-links";
 	import { Terminal } from "@xterm/xterm";
-	import { onDestroy, untrack } from "svelte";
+	import { onDestroy, tick, untrack } from "svelte";
 	import { api, errorMessage } from "../../lib/api";
 	import { Socket } from "../../lib/conn/socket.svelte";
 	import { tildify } from "../../lib/format";
@@ -18,13 +18,21 @@
 	import Button from "../../lib/ui/Button.svelte";
 	import EmptyState from "../../lib/ui/EmptyState.svelte";
 	import Skeleton from "../../lib/ui/Skeleton.svelte";
+	import { toast } from "../../lib/ui/toast.svelte";
 	import ExtraKeys from "./ExtraKeys.svelte";
 	import { applyModifiers, type ModState } from "./keys";
+	import { type BufferText, copyText, snapshotBuffer, wordAt } from "./selection";
 
 	let { win, pane }: { win: WindowOf<"terminal">; pane: PaneContext<"terminal"> } = $props();
 
 	const CLIENTS_POLL_MS = 15_000;
 	const SLOW_CONNECT_MS = 1000;
+	const LONG_PRESS_MS = 500;
+	/** Finger travel that turns a long-press into a scroll. */
+	const LONG_PRESS_SLOP_PX = 8;
+	const COPIED_MS = 1500;
+	/** Wait after a long-press lifts, so the synthesized click lands before the word is selected. */
+	const LIFT_SETTLE_MS = 50;
 
 	let host: HTMLDivElement;
 	let term: Terminal | null = null;
@@ -37,6 +45,16 @@
 	let exitCode: number | null = $state(null);
 	let ctrl: ModState = $state("off");
 	let alt: ModState = $state("off");
+	/** Select mode: a frozen plain-text copy of the buffer, shown as a natively selectable layer. */
+	let snapshot = $state.raw<BufferText | null>(null);
+	let rowPx = $state(0);
+	let layer: HTMLDivElement | undefined = $state();
+	let pre: HTMLPreElement | undefined = $state();
+	let hasSelection = $state(false);
+	let copied = $state(false);
+	let copiedTimer: number | undefined;
+	let pasting = $state(false);
+	let press: { id: number; x: number; y: number; timer: number } | null = null;
 
 	const conn = $derived(socket?.state ?? "connecting");
 	const termId = $derived(win.props.termId);
@@ -69,6 +87,136 @@
 		if (ctrl === "latched") ctrl = "off";
 		if (alt === "latched") alt = "off";
 		socket.send({ t: "in", d: out });
+	}
+
+	async function paste() {
+		if (!term || pasting || conn !== "live") return;
+		pasting = true;
+		exitSelect();
+		try {
+			// Called synchronously inside the tap, which iOS requires; it then shows its own Paste confirmation.
+			const text = await navigator.clipboard.readText();
+			if (text) term.paste(text);
+			else toast("Clipboard is empty.");
+		} catch {
+			toast({ message: "Couldn't paste. Allow clipboard access and try again.", tone: "danger" });
+		} finally {
+			pasting = false;
+		}
+	}
+
+	async function enterSelect() {
+		if (!term || snapshot) return;
+		const buffer = term.buffer.active;
+		const screen = term.element?.querySelector(".xterm-screen");
+		rowPx = screen && term.rows ? screen.clientHeight / term.rows : 0;
+		snapshot = snapshotBuffer(buffer);
+		term.blur();
+		await tick();
+		if (layer) layer.scrollTop = buffer.viewportY * rowPx;
+	}
+
+	function exitSelect() {
+		if (!snapshot) return;
+		if (ownedRange()) getSelection()?.removeAllRanges();
+		snapshot = null;
+		hasSelection = false;
+		copied = false;
+		clearTimeout(copiedTimer);
+	}
+
+	/** The selection as offsets into the snapshot text, when it lies inside the layer. */
+	function ownedRange(): { start: number; end: number } | null {
+		const sel = getSelection();
+		const root = pre;
+		if (!root || !sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+		const range = sel.getRangeAt(0);
+		if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+		const offset = (node: Node, at: number) => {
+			const r = document.createRange();
+			r.setStart(root, 0);
+			r.setEnd(node, at);
+			return r.toString().length;
+		};
+		return { start: offset(range.startContainer, range.startOffset), end: offset(range.endContainer, range.endOffset) };
+	}
+
+	function selectWordAt(x: number, y: number) {
+		const text = pre?.firstChild;
+		const caret = document.caretRangeFromPoint(x, y);
+		if (!snapshot || !text || caret?.startContainer !== text) return;
+		const word = wordAt(snapshot.text, caret.startOffset);
+		if (!word) return;
+		const range = document.createRange();
+		range.setStart(text, word[0]);
+		range.setEnd(text, word[1]);
+		getSelection()?.removeAllRanges();
+		getSelection()?.addRange(range);
+	}
+
+	/** Everything up to the last non-blank character: the empty rows under the prompt are not worth copying. */
+	function selectAll() {
+		const text = pre?.firstChild;
+		if (!snapshot || !text) return;
+		const range = document.createRange();
+		range.setStart(text, 0);
+		range.setEnd(text, snapshot.text.trimEnd().length);
+		getSelection()?.removeAllRanges();
+		getSelection()?.addRange(range);
+	}
+
+	async function copySelection() {
+		const range = ownedRange();
+		if (!snapshot || !range) return;
+		try {
+			await navigator.clipboard.writeText(copyText(snapshot, range.start, range.end));
+		} catch {
+			toast({ message: "Couldn't copy. Use the system Copy option instead.", tone: "danger" });
+			return;
+		}
+		copied = true;
+		clearTimeout(copiedTimer);
+		copiedTimer = window.setTimeout(() => (copied = false), COPIED_MS);
+	}
+
+	/** The system Copy callout copies the laid-out rows; rejoin soft-wrapped lines instead. */
+	function nativeCopy(e: ClipboardEvent) {
+		const range = ownedRange();
+		if (!snapshot || !range || !e.clipboardData) return;
+		e.preventDefault();
+		e.clipboardData.setData("text/plain", copyText(snapshot, range.start, range.end));
+	}
+
+	/** Long-press on the terminal enters select mode with the word under the finger selected. */
+	function pressStart(e: PointerEvent) {
+		if (e.pointerType !== "touch" || !e.isPrimary || snapshot) return;
+		cancelPress();
+		const { clientX: x, clientY: y, pointerId: id } = e;
+		const timer = window.setTimeout(() => {
+			press = null;
+			void enterSelect();
+			// Select only once the finger lifts: the tap iOS synthesizes on release would collapse it.
+			const lifted = (up: PointerEvent) => {
+				if (up.pointerId !== id) return;
+				removeEventListener("pointerup", lifted, true);
+				removeEventListener("pointercancel", lifted, true);
+				window.setTimeout(() => selectWordAt(x, y), LIFT_SETTLE_MS);
+			};
+			addEventListener("pointerup", lifted, true);
+			addEventListener("pointercancel", lifted, true);
+		}, LONG_PRESS_MS);
+		press = { id, x, y, timer };
+	}
+
+	function pressMove(e: PointerEvent) {
+		if (press?.id === e.pointerId && Math.hypot(e.clientX - press.x, e.clientY - press.y) > LONG_PRESS_SLOP_PX) {
+			cancelPress();
+		}
+	}
+
+	function cancelPress() {
+		if (press) clearTimeout(press.timer);
+		press = null;
 	}
 
 	async function create() {
@@ -215,8 +363,23 @@
 
 	$effect(() => pane.onFocusRequest(() => term?.focus()));
 
+	// Copy follows the native selection, but only one inside this pane's selectable layer.
+	$effect(() => {
+		if (!snapshot) return;
+		const update = () => (hasSelection = ownedRange() !== null);
+		document.addEventListener("selectionchange", update);
+		return () => document.removeEventListener("selectionchange", update);
+	});
+
+	// A hidden pane (workspace switch) leaves select mode.
+	$effect(() => {
+		if (!pane.visible) untrack(exitSelect);
+	});
+
 	onDestroy(() => {
 		pane.status.conn = null;
+		cancelPress();
+		clearTimeout(copiedTimer);
 	});
 
 	function restart() {
@@ -224,6 +387,7 @@
 	}
 
 	const showKeys = $derived(viewport.coarse && pane.focused && conn === "live");
+	const hasText = $derived(!!snapshot?.text.trim());
 </script>
 
 <div class="terminal">
@@ -257,17 +421,60 @@
 		</Banner>
 	{/if}
 	<div class="screen" hidden={!!createError}>
-		<div class="xterm-host" bind:this={host}></div>
+		<div
+			class="xterm-host"
+			bind:this={host}
+			onpointerdowncapture={pressStart}
+			onpointermovecapture={pressMove}
+			onpointerupcapture={cancelPress}
+			onpointercancelcapture={cancelPress}
+		></div>
 		{#if !replayed && !createError && conn !== "exited"}
 			<div class="loading">
 				<Skeleton preset="lines" mono count={3} note={slow ? "Connecting to terminal…" : null} />
 			</div>
 		{/if}
+		{#if snapshot}
+			<div class="select-layer" bind:this={layer}>
+				<pre
+					bind:this={pre}
+					aria-label="Terminal text"
+					style:line-height={rowPx ? `${rowPx}px` : null}
+					oncopy={nativeCopy}>{snapshot.text}</pre>
+				{#if !hasText}
+					<p class="select-empty">No terminal text to select yet.</p>
+				{/if}
+			</div>
+		{/if}
 	</div>
-	{#if showKeys}
-		<ExtraKeys bind:ctrl bind:alt onkey={input} onhide={() => term?.blur()} />
+	{#if showKeys || snapshot}
+		<ExtraKeys
+			bind:ctrl
+			bind:alt
+			onkey={input}
+			onhide={() => term?.blur()}
+			selecting={!!snapshot}
+			{hasSelection}
+			{hasText}
+			{copied}
+			canPaste={conn === "live" && !pasting}
+			onselect={enterSelect}
+			onpaste={paste}
+			oncopy={copySelection}
+			onselectall={selectAll}
+			ondone={exitSelect}
+		/>
 	{/if}
 </div>
+
+<svelte:window
+	onkeydown={(e) => {
+		if (snapshot && e.key === "Escape") {
+			e.preventDefault();
+			exitSelect();
+		}
+	}}
+/>
 
 <style>
 	.terminal {
@@ -289,6 +496,43 @@
 	.xterm-host {
 		width: 100%;
 		height: 100%;
+		/* Long-press enters select mode; keep iOS from opening its own callout on the terminal. */
+		-webkit-touch-callout: none;
+	}
+	.select-layer {
+		position: absolute;
+		inset: 0;
+		overflow: auto;
+		overscroll-behavior: contain;
+		background: var(--surface-1);
+		color: var(--fg);
+		box-shadow: inset 0 var(--edge-w) 0 var(--accent);
+		user-select: text;
+		-webkit-user-select: text;
+		-webkit-touch-callout: default;
+		cursor: text;
+		pre {
+			margin: 0;
+			/* Same inset as .screen, so the rows sit where the terminal drew them. */
+			padding: var(--sp-1);
+			min-width: max-content;
+			white-space: pre;
+			font-family: var(--font-mono);
+			font-size: var(--term-font-size);
+			&::selection {
+				background: var(--accent);
+				color: var(--accent-fg);
+			}
+		}
+	}
+	.select-empty {
+		position: absolute;
+		inset: 0 0 auto;
+		padding: var(--sp-3);
+		color: var(--fg-muted);
+		font-size: var(--text-sm);
+		user-select: none;
+		-webkit-user-select: none;
 	}
 	.loading {
 		position: absolute;

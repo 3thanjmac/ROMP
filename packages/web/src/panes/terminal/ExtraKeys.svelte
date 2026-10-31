@@ -1,8 +1,9 @@
 <script lang="ts">
 	/**
 	 * Touch key row under a focused terminal. pointerdown only prevents the focus loss (so the soft keyboard
-	 * stays up); keys fire on click. Ctrl/Alt: tap latches for the next key, double-tap locks, tap again
-	 * releases. Arrows repeat while held.
+	 * stays up, and in select mode the native text selection survives); keys fire on click. Ctrl/Alt: tap
+	 * latches for the next key, double-tap locks, tap again releases. Arrows repeat while held. In select mode
+	 * the row turns into the selection toolbar.
 	 */
 	import { Icons } from "../../lib/icons";
 	import Icon from "../../lib/ui/Icon.svelte";
@@ -14,9 +15,38 @@
 		/** Sends a key sequence through the modifier pipeline. */
 		onkey: (seq: string) => void;
 		onhide: () => void;
+		/** Select mode: the terminal text is shown as a natively selectable layer. */
+		selecting: boolean;
+		/** The selectable layer holds a non-collapsed selection. */
+		hasSelection: boolean;
+		/** The snapshot has any non-blank text. */
+		hasText: boolean;
+		/** Copy just succeeded. */
+		copied: boolean;
+		canPaste: boolean;
+		onselect: () => void;
+		onpaste: () => void;
+		oncopy: () => void;
+		onselectall: () => void;
+		ondone: () => void;
 	}
 
-	let { ctrl = $bindable(), alt = $bindable(), onkey, onhide }: Props = $props();
+	let {
+		ctrl = $bindable(),
+		alt = $bindable(),
+		onkey,
+		onhide,
+		selecting,
+		hasSelection,
+		hasText,
+		copied,
+		canPaste,
+		onselect,
+		onpaste,
+		oncopy,
+		onselectall,
+		ondone,
+	}: Props = $props();
 
 	const DOUBLE_TAP_MS = 300;
 	const REPEAT_DELAY_MS = 400;
@@ -75,41 +105,55 @@
 	];
 </script>
 
-<div class="keys" role="toolbar" aria-label="Extra keys">
-	<button class="key" onpointerdown={keep} onclick={() => onkey(KEY_SEQ.esc)}>Esc</button>
-	<button class="key" onpointerdown={keep} onclick={() => onkey(KEY_SEQ.tab)}>Tab</button>
-	<button
-		class="key"
-		aria-pressed={ctrl !== "off"}
-		data-mod={ctrl}
-		onpointerdown={keep}
-		onclick={(e) => toggle("ctrl", e)}
-	>
-		Ctrl
-	</button>
-	<button class="key" aria-pressed={alt !== "off"} data-mod={alt} onpointerdown={keep} onclick={(e) => toggle("alt", e)}>
-		Alt
-	</button>
-	{#each ARROWS as a (a.seq)}
+{#if selecting}
+	<div class="keys" role="toolbar" aria-label="Text selection">
+		<button class="key copy" disabled={!hasSelection || copied} onpointerdown={keep} onclick={oncopy}>
+			<Icon icon={copied ? Icons.Check : Icons.Copy} />
+			{copied ? "Copied" : "Copy"}
+		</button>
+		<button class="key" disabled={!hasText} onpointerdown={keep} onclick={onselectall}>Select all</button>
+		<button class="key" disabled={!canPaste} onpointerdown={keep} onclick={onpaste}>Paste</button>
+		<button class="key" onpointerdown={keep} onclick={ondone}>Done</button>
+	</div>
+{:else}
+	<div class="keys" role="toolbar" aria-label="Extra keys">
+		<button class="key" onpointerdown={keep} onclick={() => onkey(KEY_SEQ.esc)}>Esc</button>
+		<button class="key" onpointerdown={keep} onclick={() => onkey(KEY_SEQ.tab)}>Tab</button>
 		<button
 			class="key"
-			aria-label={a.aria}
-			onpointerdown={(e) => arrowDown(e, a.seq)}
-			onpointerup={stopRepeat}
-			onpointercancel={stopRepeat}
-			onpointerleave={stopRepeat}
-			onclick={() => arrowClick(a.seq)}
+			aria-pressed={ctrl !== "off"}
+			data-mod={ctrl}
+			onpointerdown={keep}
+			onclick={(e) => toggle("ctrl", e)}
 		>
-			{a.label}
+			Ctrl
 		</button>
-	{/each}
-	{#each SIMPLE as k (k.seq)}
-		<button class="key" onpointerdown={keep} onclick={() => onkey(k.seq)}>{k.label}</button>
-	{/each}
-	<button class="key" aria-label="Hide keyboard" onpointerdown={keep} onclick={onhide}>
-		<Icon icon={Icons.HideKeyboard} />
-	</button>
-</div>
+		<button class="key" aria-pressed={alt !== "off"} data-mod={alt} onpointerdown={keep} onclick={(e) => toggle("alt", e)}>
+			Alt
+		</button>
+		<button class="key" onpointerdown={keep} onclick={onselect}>Select</button>
+		<button class="key" disabled={!canPaste} onpointerdown={keep} onclick={onpaste}>Paste</button>
+		{#each ARROWS as a (a.seq)}
+			<button
+				class="key"
+				aria-label={a.aria}
+				onpointerdown={(e) => arrowDown(e, a.seq)}
+				onpointerup={stopRepeat}
+				onpointercancel={stopRepeat}
+				onpointerleave={stopRepeat}
+				onclick={() => arrowClick(a.seq)}
+			>
+				{a.label}
+			</button>
+		{/each}
+		{#each SIMPLE as k (k.seq)}
+			<button class="key" onpointerdown={keep} onclick={() => onkey(k.seq)}>{k.label}</button>
+		{/each}
+		<button class="key" aria-label="Hide keyboard" onpointerdown={keep} onclick={onhide}>
+			<Icon icon={Icons.HideKeyboard} />
+		</button>
+	</div>
+{/if}
 
 <style>
 	.keys {
@@ -126,8 +170,10 @@
 		flex: none;
 	}
 	.key {
-		display: inline-grid;
-		place-items: center;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--sp-1);
 		flex: none;
 		min-width: var(--key-min-w);
 		height: calc(var(--extrakeys-h) - var(--sp-2));
@@ -136,11 +182,16 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
 		color: var(--fg);
+		white-space: nowrap;
 		scroll-snap-align: start;
 		user-select: none;
 		-webkit-user-select: none;
-		&:active {
+		&:not([disabled]):active {
 			background: var(--surface-3);
+		}
+		&[disabled] {
+			opacity: 0.6;
+			cursor: not-allowed;
 		}
 		&[aria-pressed="true"] {
 			background: var(--accent-soft);
@@ -148,6 +199,10 @@
 		}
 		&[data-mod="locked"] {
 			box-shadow: inset 0 calc(-1 * var(--edge-w)) 0 var(--accent);
+		}
+		&.copy:not([disabled]) {
+			background: var(--accent-soft);
+			color: var(--accent);
 		}
 	}
 </style>

@@ -21,7 +21,7 @@ flowchart LR
 
 - **Window manager in the browser.** Each workspace runs in one of two modes, and you can switch at any time without losing windows. Scroll mode is a horizontal strip of columns (swipe between full-width columns on a phone). Tile mode splits the screen into panes with draggable dividers. The layout is saved on the server, so another device opens the same workspace.
 - **Windows:**
-  - terminal: persistent shell that survives disconnects and replays scrollback; extra-keys row on touch screens.
+  - terminal: persistent shell that survives disconnects and replays scrollback; extra-keys row on touch screens, with Select / Paste for copy and paste.
   - files: browse, create, rename, trash with undo.
   - editor: CodeMirror with autosave and conflict detection.
   - agent: OMP chat with streaming output, tool cards, steer / follow-up / stop, and answers to the agent's questions.
