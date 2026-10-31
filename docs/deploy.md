@@ -69,32 +69,61 @@ sudo /opt/romp/deploy/install.sh
 
 This installs Bun, pnpm, tsgo, mergiraf, gh and Node, creates the `romp` group and service user, builds the web app, initialises `/srv/romp`, and starts `romp-queue.service`.
 
-Give the queue its credentials once (it pushes to GitHub and runs the conflict-resolver agent):
+Give the queue its credentials once. It pushes to GitHub and runs an agent to resolve merge conflicts:
 
 ```sh
 sudo -iu romp gh auth login
 sudo -iu romp omp setup  # sign in to a provider and pick models
 ```
 
+When `gh auth login` asks for your preferred protocol for Git operations, choose HTTPS, and answer yes to authenticating Git with your GitHub credentials. gh stores a token and git uses it for every push, so there is no SSH key to create or host key to accept. The queue pushes to the exact URL a repo was added with (step 7), so add repos with `https://` URLs to match.
+
 ## 5. Add people
 
+Everyone gets their own gateway, including you. Run `add-user.sh` once per person. If the Linux account already exists, the script uses it instead of creating one.
+
 ```sh
-sudo /opt/romp/deploy/add-user.sh alice alice@example.com 7680 443
+sudo /opt/romp/deploy/add-user.sh alice alice@github 7680 443
 sudo /opt/romp/deploy/add-user.sh bob bob@example.com 7681 8443
 ```
 
-The second argument is the person's Tailscale login (shown in the Tailscale admin console under Users). The first terminal each person opens in ROMP offers OMP's setup wizard to sign in to their providers (Anthropic, OpenRouter, ...) and pick models; they can rerun it any time with `omp setup`. Each person also sets a git identity.
+The arguments, in order:
 
-Open `https://<vm-name>.<tailnet>.ts.net/` (alice) or `https://<vm-name>.<tailnet>.ts.net:8443/` (bob), then "Add to Home Screen" to install it as an app.
+1. The Linux account name.
+2. The person's Tailscale login. The gateway rejects requests from any other login, and the match must be exact. Once the person's phone or laptop has joined the tailnet, `tailscale status` on the VM shows the owner login next to each device, for example `alice@github` or an email address. The admin console lists it under Users too.
+3. The gateway port. The gateway listens on it inside the VM only. Give each person a different one.
+4. The HTTPS port the person's browser connects to. Tailscale serves HTTPS only on 443, 8443 and 10000, so one VM fits three people.
 
-## 6. Add repositories
+If `tailscale serve` says HTTPS is not enabled for your tailnet, open the link it prints, turn HTTPS on, and run `add-user.sh` again. Running it twice is safe.
+
+Each person sets a git identity for their commits. From their own account:
+
+```sh
+git config --global user.name "Alice Example"
+git config --global user.email "alice@example.com"
+```
+
+An admin can do the same by putting `sudo -iu alice` in front of each command.
+
+## 6. Open ROMP on a phone
+
+1. Install the Tailscale app on the phone, sign in with the same account as the login passed to `add-user.sh`, and switch the VPN on. ROMP is only reachable from devices in the tailnet.
+2. Get the address on the VM with `tailscale serve status`. It prints one URL per person, such as `https://debian.tail1234.ts.net/` for port 443 and `https://debian.tail1234.ts.net:8443/` for 8443. Open it in the phone's browser. The first load can take a few seconds while Tailscale fetches the HTTPS certificate.
+3. Install it as an app. In Safari, tap Share, then Add to Home Screen. In Chrome on Android, open the ⋮ menu and choose Add to Home screen (or Install app).
+4. The first terminal opened in ROMP offers OMP's setup wizard, which signs in to AI providers (Anthropic, OpenRouter, ...) and picks models. `omp setup` reruns it at any time.
+
+A laptop works the same way: join the tailnet and open the same URL in any browser.
+
+## 7. Add repositories
 
 In the Tasks pane choose **Add repo** and paste the clone URL, or on the VM:
 
 ```sh
-romp repo add git@github.com:<owner>/project.git
+romp repo add https://github.com/<owner>/project.git
 romp repo set project land=pr        # optional: land through PRs with auto-merge instead of pushing to main
 ```
+
+Whoever adds a repo makes the first clone from GitHub as their own Linux user, so for a private repo they need their own `gh auth login` first (HTTPS, as in step 4). After that, people work through the copy on the VM and only the queue talks to GitHub.
 
 Commit a `.romp.toml` to the project to tell ROMP how to install dependencies in a new worktree and how to test before landing:
 
@@ -103,7 +132,7 @@ setup = "pnpm install --frozen-lockfile"
 test = "pnpm test"
 ```
 
-## 7. Shared OMP settings
+## 8. Shared OMP settings
 
 `deploy/omp-defaults/` is laid out like `~/.omp/agent/`. Put the OMP files everyone should start with there (`config.yml`, `RULES.md`, `skills/`, `commands/`, `lsp.json`, ...). `add-user.sh` copies them to a new user, and every run of `install.sh` brings each user (and the `romp` service user) up to date. The VM has no display or desktop browser, so leave out anything that needs one (browser MCP servers, sign-in windows). Users are never overwritten:
 
@@ -188,4 +217,32 @@ A file in the checkout differs from the last commit, for example after editing a
 ```sh
 git restore deploy/install.sh
 git pull
+```
+
+### `omp: command not found`
+
+OMP lives in each user's `~/.bun/bin`, and `/etc/profile.d/romp-setup.sh` (installed by `install.sh`) adds that folder to `PATH` for login shells. A shell opened before `install.sh` last ran doesn't have it yet, so log out and back in. To run OMP for another user before then, give the full path:
+
+```sh
+sudo -iu romp /var/lib/romp/.bun/bin/omp setup
+```
+
+Don't write `~/.bun/bin/omp` there. Your own shell expands `~` to your home folder before `sudo` runs, so it would point at the wrong user's files.
+
+### Errors when opening ROMP in the browser
+
+| Message | Cause | Fix |
+|---|---|---|
+| `No Tailscale identity: open the gateway through tailscale serve` | The page was opened on the gateway port directly, such as `127.0.0.1:7680` | Use the `https://...ts.net` address from `tailscale serve status` |
+| `<login> is not allowed on this gateway` | The login given to `add-user.sh` doesn't match the one Tailscale reports | Fix `allow_logins` in that user's `~/.config/romp/gateway.toml`, then run `systemctl --user restart romp-gateway` as them |
+| The page never loads | The device isn't on the tailnet | Switch on the VPN in the Tailscale app |
+
+Re-running `add-user.sh` doesn't fix a wrong login, because it keeps an existing `gateway.toml`.
+
+### `refusing to allow an OAuth App to create or update workflow`
+
+The queue tried to push a change to `.github/workflows/`, and its GitHub token lacks the `workflow` scope. Add the scope:
+
+```sh
+sudo -iu romp gh auth refresh -s workflow
 ```
