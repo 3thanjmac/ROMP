@@ -39,7 +39,7 @@ step "pnpm"
 if ! command -v pnpm >/dev/null; then
 	# The installer ends with `pnpm setup`, which refuses to run when SUDO_USER is set.
 	curl -fsSL https://get.pnpm.io/install.sh | env -u SUDO_USER PNPM_HOME=/usr/local/share/pnpm SHELL=/bin/bash sh - >/dev/null
-	ln -sf /usr/local/share/pnpm/pnpm /usr/local/bin/pnpm
+	ln -sf /usr/local/share/pnpm/bin/pnpm /usr/local/bin/pnpm
 fi
 pnpm --version
 
