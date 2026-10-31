@@ -6,7 +6,13 @@ import { ConfigError, locateConfig, parseListen, resolveConfig, type ResolveCont
 
 const home = realpathSync(mkdtempSync(join(tmpdir(), "romp-config-")));
 afterAll(() => rmSync(home, { recursive: true, force: true }));
-const ctx: ResolveContext = { home, baseDir: "/etc/romp", which: (cmd) => (cmd === "nope" ? null : `/usr/bin/${cmd}`) };
+const ctx: ResolveContext = {
+	home,
+	baseDir: "/etc/romp",
+	which: (cmd) => (cmd === "nope" ? null : `/usr/bin/${cmd}`),
+	uidOf: (user) => (({ caddy: 997, root: 0, me: 1000 }) as Record<string, number>)[user] ?? null,
+	selfUid: 1000,
+};
 
 describe("resolveConfig", () => {
 	test("applies defaults", () => {
@@ -41,6 +47,13 @@ describe("resolveConfig", () => {
 		expect(() => resolveConfig({ dev: true, roots: [join(home, "missing")] }, ctx)).toThrow("does not exist");
 		expect(() => resolveConfig({ dev: true, roots: ["relative"] }, ctx)).toThrow("absolute");
 		expect(() => resolveConfig({ dev: true, roots: [] }, ctx)).toThrow("at least one");
+	});
+	test("lan_proxy_user must be a dedicated existing account", () => {
+		expect(resolveConfig({ dev: true }, ctx).lanProxyUid).toBeNull();
+		expect(resolveConfig({ dev: true, lan_proxy_user: "caddy" }, ctx).lanProxyUid).toBe(997);
+		expect(() => resolveConfig({ dev: true, lan_proxy_user: "ghost" }, ctx)).toThrow("not a Linux account");
+		expect(() => resolveConfig({ dev: true, lan_proxy_user: "root" }, ctx)).toThrow("dedicated");
+		expect(() => resolveConfig({ dev: true, lan_proxy_user: "me" }, ctx)).toThrow("dedicated");
 	});
 	test("a missing shell is an error, a missing omp is not", () => {
 		expect(() => resolveConfig({ dev: true, shell: "nope" }, ctx)).toThrow("shell");

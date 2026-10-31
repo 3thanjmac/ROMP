@@ -59,7 +59,7 @@ You need a Debian 13 machine or VM, a Tailscale account, and an account with a m
    ```sh
    sudo /opt/romp/deploy/install.sh
    ```
-   This installs Bun, pnpm, tsgo, Node, git, mergiraf and gh, and creates the `romp` group and service user. It also builds the web app, puts `romp` and `romp-gateway` on PATH, initialises `/srv/romp`, and starts `romp-queue.service`. Re-run it after every update.
+   This installs Bun, pnpm, tsgo, Node, git, mergiraf and gh, and creates the `romp` group and service user. It also builds the web app, puts `romp` and `romp-gateway` on PATH, initialises `/srv/romp`, and starts `romp-queue.service`. Re-run it after every update, or switch on automatic updates with `sudo systemctl enable --now romp-update.timer`: it pulls new commits from GitHub every 10 minutes and re-runs `install.sh` once no agent is mid-turn ([details](docs/deploy.md#updating)).
 3. **Give the merge queue credentials** so it can push and resolve conflicts:
    ```sh
    sudo -iu romp gh auth login     # or an SSH deploy key in /var/lib/romp/.ssh
@@ -83,6 +83,7 @@ You need a Debian 13 machine or VM, a Tailscale account, and an account with a m
    setup = "pnpm install --frozen-lockfile"
    test = "pnpm test"
    ```
+7. **Optional: LAN access without Tailscale.** `sudo romp-lan enable` serves the same `ts.net` address on the VM's LAN IP through Caddy. Add a local DNS record on your router pointing that name at the VM, and have each person set a sign-in password with `romp-gateway passwd`. See [docs/deploy.md](docs/deploy.md#9-lan-access-without-tailscale-optional).
 
 ### Gateway configuration
 
@@ -93,13 +94,14 @@ You need a Debian 13 machine or VM, a Tailscale account, and an account with a m
 | `listen` | `127.0.0.1:7680` | Must be loopback; Tailscale Serve forwards to it |
 | `allow_logins` | | Tailscale logins allowed in (`Tailscale-User-Login` header) |
 | `dev` | `false` | Disables auth; loopback only, for development |
+| `lan_proxy_user` | | Linux account of the LAN reverse proxy (`caddy`, set by `romp-lan`); its connections must sign in with the password from `romp-gateway passwd` |
 | `roots` | `["~"]` | Directories the files API, terminals and agents may use |
 | `shell` | `/bin/bash` | Terminal shell |
 | `omp` | `omp` | Path to the omp binary |
 | `web_dir` | `packages/web/dist` | Built web app |
 | `state_dir` | `~/.local/state/romp` | Saved layout and agent sessions |
 
-The gateway trusts the Tailscale identity headers only on connections from sockets owned by root (tailscaled) or by the gateway's own user, so another local user can't impersonate someone. Agents and terminals can only start in directories inside `roots`.
+The gateway trusts the Tailscale identity headers only on connections from sockets owned by root (tailscaled) or by the gateway's own user, so another local user can't impersonate someone. Connections from `lan_proxy_user` never get Tailscale identity; they need a session cookie from a password sign-in (argon2id hash in `~/.config/romp/password`, sessions in `state_dir/sessions.json`). Agents and terminals can only start in directories inside `roots`.
 
 ## Using it
 
@@ -139,3 +141,5 @@ The first milestone is complete and verified on Debian 13 (WSL): every part of t
 - Overview swipe-to-close and drag-to-reorder gestures.
 - Stop sends `abort_and_restore_queue` (queued messages return to the composer); only plain `abort` was exercised live.
 - The web bundle is a single 1.1 MB chunk (mostly CodeMirror languages); code-splitting is still to do.
+- LAN access (`romp-lan`) on a real tailnet and router. Checked in WSL: password sign-in, sessions and lockout through a proxy account, Debian 13's Caddy accepting the generated config and stripping spoofed `Tailscale-User-*` headers, and parsing of `tailscale serve status --json`. Not checked: `tailscale cert` and `tailscale serve` themselves.
+- `romp-update` on the TrueNAS VM. Checked in WSL against a local upstream: applying, waiting for busy agents or a landing, and refusing local commits.

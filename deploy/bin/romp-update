@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Pulls new ROMP commits into /opt/romp and applies them with install.sh. Run by romp-update.timer as root;
+# `sudo romp-update` checks right away. Restarting gateways stops running agent turns, so an update waits
+# until no agent is mid-turn and the merge queue is not landing anything, and retries on the next tick.
+set -euo pipefail
+
+ROMP_SRC="${ROMP_SRC:-/opt/romp}"
+ROMP_ROOT="${ROMP_ROOT:-/srv/romp}"
+STATE_DIR=/var/lib/romp-update
+
+[[ $EUID -eq 0 ]] || { echo "romp-update must run as root" >&2; exit 1; }
+
+# git runs as the checkout's owner, so .git stays theirs and their own `git pull` keeps working.
+owner="$(stat -c %U "$ROMP_SRC")"
+owner_home="$(getent passwd "$owner" | cut -d: -f6)"
+git_() { runuser -u "$owner" -- env HOME="$owner_home" GIT_TERMINAL_PROMPT=0 git -C "$ROMP_SRC" "$@"; }
+
+git_ fetch --quiet
+head="$(git_ rev-parse HEAD)"
+upstream="$(git_ rev-parse '@{upstream}')"
+applied="$(cat "$STATE_DIR/applied" 2>/dev/null || true)"
+[[ $head == "$upstream" && $applied == "$head" ]] && exit 0
+
+if ! git_ merge-base --is-ancestor HEAD '@{upstream}'; then
+	echo "$ROMP_SRC has commits that are not on $(git_ rev-parse --abbrev-ref '@{upstream}'); not updating" >&2
+	exit 1
+fi
+
+# Each gateway keeps $XDG_RUNTIME_DIR/romp-gateway.busy while one of its agents is mid-turn.
+busy=()
+for marker in /run/user/*/romp-gateway.busy; do
+	[[ -e $marker ]] && busy+=("$(stat -c %U "$marker")")
+done
+if ((${#busy[@]} > 0)); then
+	echo "update to ${upstream:0:7} waits: agents are running for ${busy[*]}"
+	exit 0
+fi
+# Interrupted landings are retried, but waiting avoids redoing a long test run.
+if compgen -G "$ROMP_ROOT/queue/processing/*.json" >/dev/null; then
+	echo "update to ${upstream:0:7} waits: the merge queue is landing a task"
+	exit 0
+fi
+
+if [[ $head != "$upstream" ]]; then
+	git_ merge --ff-only --quiet '@{upstream}'
+fi
+echo "applying $(git_ log --oneline -1)"
+# Recorded before installing, so a commit whose install fails is not retried every few minutes. After fixing
+# the problem, run `sudo /opt/romp/deploy/install.sh` (which records it too) or push a new commit.
+install -d -m 0755 "$STATE_DIR"
+git_ rev-parse HEAD >"$STATE_DIR/applied"
+"$ROMP_SRC/deploy/install.sh"

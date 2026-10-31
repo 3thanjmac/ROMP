@@ -1,5 +1,6 @@
 import type { Server } from "bun";
 import { apiError, badRequest, forbidden } from "./http.ts";
+import { stripSessionCookies } from "./sessions.ts";
 import { errorMessage, withTimeout } from "./util.ts";
 import type { Socket, WsData } from "./ws.ts";
 
@@ -66,6 +67,13 @@ function upstreamHeaders(req: Request, target: ProxyTarget, publicUrl: URL): Hea
 	const headers = new Headers(req.headers);
 	for (const name of [...HOP_BY_HOP, ...IDENTITY_HEADERS]) headers.delete(name);
 	for (const name of [...headers.keys()]) if (name.startsWith("sec-websocket-")) headers.delete(name);
+	// The ROMP session cookie authenticates to the gateway; a proxied dev server must never see it.
+	const cookie = headers.get("cookie");
+	if (cookie !== null) {
+		const kept = stripSessionCookies(cookie);
+		if (kept === null) headers.delete("cookie");
+		else headers.set("cookie", kept);
+	}
 	// Dev servers commonly refuse unknown Host values (Vite's allowedHosts), so present the loopback name.
 	headers.set("host", `127.0.0.1:${target.port}`);
 	headers.set("x-forwarded-host", publicUrl.host);

@@ -10,6 +10,7 @@ import type {
 	FsWriteRequest,
 	FsWriteResult,
 	ListeningPort,
+	LoginRequest,
 	Me,
 	RepoAdd,
 	RepoInfo,
@@ -23,6 +24,7 @@ import type {
 	TermInfo,
 } from "@romp/protocol";
 import { net } from "./conn/net.svelte";
+import { signIn } from "./conn/signin.svelte";
 
 /** A failed request. `status` 0 means the gateway could not be reached. `message` is ApiError.message. */
 export class ApiFailure extends Error {
@@ -90,6 +92,7 @@ export async function request<T>(method: string, path: string, body?: unknown, s
 	}
 	if (isApiError(parsed)) {
 		net.reportUp();
+		if (res.status === 401 && parsed.error === "login_required") signIn.required = true;
 		throw new ApiFailure(res.status, parsed);
 	}
 	// A non-JSON 5xx comes from a proxy in front of a gateway that is down (tailscale serve, or Vite in dev).
@@ -107,6 +110,8 @@ const q = encodeURIComponent;
 
 export const api = {
 	me: () => request<Me>("GET", "/api/me"),
+	/** LAN sign-in; the gateway answers with the session cookie. */
+	login: (req: LoginRequest) => request<undefined>("POST", "/api/login", req),
 
 	state: {
 		/** null when nothing has been saved yet (404). */

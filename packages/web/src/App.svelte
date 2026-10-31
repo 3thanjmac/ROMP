@@ -2,6 +2,8 @@
 	import Toaster from "./lib/ui/Toaster.svelte";
 	import Skeleton from "./lib/ui/Skeleton.svelte";
 	import AppFrame from "./lib/shell/AppFrame.svelte";
+	import LoginScreen from "./lib/shell/LoginScreen.svelte";
+	import { signIn } from "./lib/conn/signin.svelte";
 	import { installShortcuts, type ShellAction } from "./lib/shell/keyboard";
 	import { launch, launchCwd } from "./lib/shell/launcherItems";
 	import { initPersistence, persistence } from "./lib/shell/persist.svelte";
@@ -14,6 +16,8 @@
 	void initPersistence();
 
 	function run(action: ShellAction): boolean {
+		// Workspace shortcuts would edit a layout that is not on screen.
+		if (signIn.required) return false;
 		const focused = shell.active.focusedId;
 		switch (action.type) {
 			case "focus":
@@ -63,7 +67,9 @@
 	$effect(() => installShortcuts(run));
 </script>
 
-{#if persistence.ready}
+{#if signIn.required}
+	<LoginScreen />
+{:else if persistence.ready}
 	<AppFrame />
 {:else}
 	<div class="boot"><Skeleton preset="rows" count={4} note="Loading your workspace…" /></div>

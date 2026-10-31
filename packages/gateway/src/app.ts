@@ -17,6 +17,7 @@ import { type Auth, crossOriginError, type Identity } from "./auth.ts";
 import type { GatewayConfig } from "./config.ts";
 import { type Files, parseFsOp } from "./files.ts";
 import {
+	HttpError,
 	badRequest,
 	forbidden,
 	json,
@@ -32,11 +33,14 @@ import type { Roots } from "./paths.ts";
 import { listeningSockets, socketProcessNames } from "./procnet.ts";
 import { checkPort, parseProxyPath, proxyHttp, proxySocket, proxyWebSocket } from "./proxy.ts";
 import { Router } from "./router.ts";
+import { type LanSessions, sessionCookie, sessionCookieName } from "./sessions.ts";
 import { MAX_STATE_BYTES, type ShellStateStore } from "./shellstate.ts";
 import { serveStatic } from "./static.ts";
 import type { TerminalManager } from "./terminals.ts";
 import { isRecord } from "./util.ts";
 import type { Socket, WsData } from "./ws.ts";
+
+const isApiPath = (pathname: string) => pathname === "/api" || pathname.startsWith("/api/");
 
 export interface AppDeps {
 	cfg: GatewayConfig;
@@ -50,6 +54,7 @@ export interface AppDeps {
 	terms: TerminalManager;
 	agents: AgentManager;
 	shellState: ShellStateStore;
+	sessions: LanSessions;
 	romp: RompEnv;
 }
 
@@ -71,10 +76,26 @@ export function createApp(deps: AppDeps) {
 		try {
 			const originError = crossOriginError(req);
 			if (originError) throw forbidden(originError);
-			const identity = deps.auth.identify(req, server);
+			const caller = deps.auth.identify(req, server);
+			if (caller.lan && url.pathname === "/api/login") {
+				if (req.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
+				const token = await deps.sessions.login(requireString(await readJson(req, SMALL_BODY), "password"));
+				return new Response(null, {
+					status: 204,
+					headers: { "cache-control": "no-store", "set-cookie": sessionCookie(sessionCookieName(req), token) },
+				});
+			}
+			const identity = caller.identity;
+			// Before signing in, a LAN browser may load the app itself (so it can show the sign-in screen) and nothing else.
+			if (
+				identity === null &&
+				(isApiPath(url.pathname) || url.pathname.startsWith("/ws/") || parseProxyPath(url.pathname, url.search) !== null)
+			) {
+				throw new HttpError(401, "login_required", "Sign in to continue.");
+			}
 			const isUpgrade = req.headers.get("upgrade")?.toLowerCase() === "websocket";
 
-			const proxy = parseProxyPath(url.pathname, url.search);
+			const proxy = identity === null ? null : parseProxyPath(url.pathname, url.search);
 			if (proxy) {
 				if ("redirect" in proxy) return new Response(null, { status: 308, headers: { location: proxy.redirect } });
 				checkPort(proxy.target, deps.cfg.listen.port);
@@ -85,7 +106,7 @@ export function createApp(deps: AppDeps) {
 				const data = socketData(url.pathname);
 				return server.upgrade(req, { data }) ? undefined : toErrorResponse(badRequest("WebSocket upgrade failed"));
 			}
-			if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+			if (identity !== null && isApiPath(url.pathname)) {
 				const match = router.match(req.method, url.pathname);
 				if (!match) throw notFound(`No route for ${url.pathname}`);
 				if ("allowed" in match) {

@@ -18,6 +18,8 @@ export interface AgentHost {
 	omp: string;
 	/** Called whenever a field of `AgentRecord` changes. */
 	persist(): void;
+	/** Called whenever the agent starts or finishes a turn. */
+	busyChanged(): void;
 }
 
 interface RpcResponse {
@@ -177,7 +179,7 @@ export class Agent {
 		this.proc = proc;
 		this.exited = false;
 		this.exitCode = null;
-		this.busy = false;
+		this.setBusy(false);
 		this.pendingUi.clear();
 		this.readyFrame = Promise.withResolvers<RpcFrame>();
 		void this.readStdout(proc);
@@ -239,7 +241,7 @@ export class Agent {
 		this.starting = null;
 		this.exited = true;
 		this.exitCode = code;
-		this.busy = false;
+		this.setBusy(false);
 		this.pendingUi.clear();
 		this.readyFrame?.reject(new Error(`omp exited with code ${code}`));
 		for (const [id, waiter] of this.waiters) {
@@ -285,12 +287,22 @@ export class Agent {
 		}
 		this.broadcast({ t: "frame", frame });
 		if (frame.type === "agent_start" && !this.busy) {
-			this.busy = true;
+			this.setBusy(true);
 			this.broadcastInfo();
 		} else if (frame.type === "agent_end" && frame.isTerminal !== false && this.busy) {
-			this.busy = false;
+			this.setBusy(false);
 			this.broadcastInfo();
 		}
+	}
+
+	get isBusy(): boolean {
+		return this.busy;
+	}
+
+	private setBusy(busy: boolean): void {
+		if (this.busy === busy) return;
+		this.busy = busy;
+		this.host.busyChanged();
 	}
 
 	private onResponse(response: RpcResponse): void {

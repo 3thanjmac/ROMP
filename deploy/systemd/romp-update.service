@@ -1,0 +1,10 @@
+[Unit]
+Description=Pull and apply ROMP updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/romp-update
+# install.sh rebuilds the web app and may install packages.
+TimeoutStartSec=30min

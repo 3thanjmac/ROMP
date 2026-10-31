@@ -74,6 +74,11 @@ else
 	echo "  tailscale serve --bg --https=$https_port http://127.0.0.1:$port"
 fi
 
+if [[ -f /etc/romp/lan.env ]]; then
+	step "LAN access"
+	romp-lan sync
+fi
+
 cat <<EOF
 
 $user is set up. Remaining manual steps:
@@ -82,3 +87,6 @@ $user is set up. Remaining manual steps:
   2. Set a git identity for commits:    sudo -iu $user git config --global user.name "Name"
                                         sudo -iu $user git config --global user.email "you@example.com"
 EOF
+if [[ -f /etc/romp/lan.env ]]; then
+	echo "  3. Set the password for signing in on the LAN: sudo -iu $user romp-gateway passwd"
+fi

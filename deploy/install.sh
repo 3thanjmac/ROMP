@@ -76,13 +76,18 @@ chmod -R g+rX "$ROMP_SRC"
 step "Commands on PATH"
 install -m 0755 "$ROMP_SRC/deploy/bin/romp" /usr/local/bin/romp
 install -m 0755 "$ROMP_SRC/deploy/bin/romp-gateway" /usr/local/bin/romp-gateway
+install -m 0755 "$ROMP_SRC/deploy/bin/romp-update" /usr/local/sbin/romp-update
+install -m 0755 "$ROMP_SRC/deploy/bin/romp-lan" /usr/local/sbin/romp-lan
 install -m 0644 "$ROMP_SRC/deploy/profile.d/romp-setup.sh" /etc/profile.d/romp-setup.sh
 
 step "ROMP root at $ROMP_ROOT"
 ROMP_ROOT="$ROMP_ROOT" romp init
 
-step "Merge queue service"
+step "Merge queue service and update timer"
 install -m 0644 "$ROMP_SRC/deploy/systemd/romp-queue.service" /etc/systemd/system/romp-queue.service
+# Automatic updates are opt-in: sudo systemctl enable --now romp-update.timer. install.sh never changes that choice.
+install -m 0644 "$ROMP_SRC/deploy/systemd/romp-update.service" /etc/systemd/system/romp-update.service
+install -m 0644 "$ROMP_SRC/deploy/systemd/romp-update.timer" /etc/systemd/system/romp-update.timer
 systemctl daemon-reload
 systemctl enable --now romp-queue.service
 systemctl restart romp-queue.service
@@ -102,6 +107,18 @@ for unit_user in $(loginctl list-users --no-legend | awk '{print $2}'); do
 			systemctl --user restart romp-gateway.service || true
 	fi
 done
+
+if [[ -f /etc/romp/lan.env ]]; then
+	step "LAN access"
+	install -m 0644 "$ROMP_SRC/deploy/systemd/romp-lan.service" /etc/systemd/system/romp-lan.service
+	install -m 0644 "$ROMP_SRC/deploy/systemd/romp-lan.timer" /etc/systemd/system/romp-lan.timer
+	systemctl daemon-reload
+	romp-lan sync || echo "romp-lan sync failed; LAN access may be stale" >&2
+fi
+
+# romp-update compares this with the newest commit to decide whether there is anything to apply.
+install -d -m 0755 /var/lib/romp-update
+git -c safe.directory="$ROMP_SRC" -C "$ROMP_SRC" rev-parse HEAD >/var/lib/romp-update/applied 2>/dev/null || true
 
 cat <<EOF
 

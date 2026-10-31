@@ -1,4 +1,5 @@
 import type { AgentInfo } from "@romp/protocol";
+import { rmSync, writeFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { HttpError } from "../http.ts";
@@ -9,6 +10,11 @@ export interface AgentManagerOptions {
 	omp: string;
 	ompFound: boolean;
 	stateDir: string;
+	/**
+	 * File that exists while any agent is mid-turn and holds how many are. `romp-update` waits for it to be gone
+	 * before restarting the gateway. Null disables it.
+	 */
+	busyFile: string | null;
 	/** `AgentInfo.task` for a working directory. */
 	taskOf(cwd: string): AgentInfo["task"];
 }
@@ -21,6 +27,8 @@ export class AgentManager {
 
 	constructor(private readonly opts: AgentManagerOptions) {
 		this.file = join(opts.stateDir, "agents.json");
+		// A marker left by a gateway that crashed mid-turn: nothing runs yet.
+		this.writeBusyFile(0);
 	}
 
 	/** Restores persisted sessions without spawning OMP; each respawns when first used. */
@@ -95,10 +103,29 @@ export class AgentManager {
 	async shutdown(): Promise<void> {
 		await Promise.all([...this.agents.values()].map((agent) => agent.close(1001, "gateway shutting down")));
 		await this.saving;
+		this.writeBusyFile(0);
 	}
 
 	private makeAgent(record: AgentRecord, prompt: string | undefined): Agent {
-		return new Agent(record, this.opts.taskOf(record.cwd), { omp: this.opts.omp, persist: () => this.persist() }, prompt);
+		const host = { omp: this.opts.omp, persist: () => this.persist(), busyChanged: () => this.busyChanged() };
+		return new Agent(record, this.opts.taskOf(record.cwd), host, prompt);
+	}
+
+	private busyChanged(): void {
+		let busy = 0;
+		for (const agent of this.agents.values()) if (agent.isBusy) busy++;
+		this.writeBusyFile(busy);
+	}
+
+	private writeBusyFile(busy: number): void {
+		const file = this.opts.busyFile;
+		if (file === null) return;
+		try {
+			if (busy > 0) writeFileSync(file, `${busy}\n`);
+			else rmSync(file, { force: true });
+		} catch (err) {
+			console.error(`updating ${file}: ${errorMessage(err)}`);
+		}
 	}
 
 	private persist(): void {

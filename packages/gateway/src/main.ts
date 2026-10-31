@@ -2,21 +2,26 @@
 import { rompEnv, taskForPath } from "@romp/core";
 import { realpathSync } from "node:fs";
 import { homedir, hostname, userInfo } from "node:os";
+import { join } from "node:path";
 import { AgentManager } from "./agents/manager.ts";
 import { createApp } from "./app.ts";
 import { Auth } from "./auth.ts";
 import { ConfigError, loadConfig } from "./config.ts";
 import { Files } from "./files.ts";
+import { passwd } from "./passwd.ts";
 import { Roots } from "./paths.ts";
+import { LanSessions } from "./sessions.ts";
 import { ShellStateStore } from "./shellstate.ts";
 import { TerminalManager } from "./terminals.ts";
 import { errorMessage } from "./util.ts";
 import type { WsData } from "./ws.ts";
 
 async function main(): Promise<void> {
+	const argv = process.argv.slice(2);
+	if (argv[0] === "passwd") process.exit(await passwd(argv.slice(1)));
 	let cfg;
 	try {
-		cfg = loadConfig(process.argv.slice(2), process.env);
+		cfg = loadConfig(argv, process.env);
 	} catch (err) {
 		if (!(err instanceof ConfigError)) throw err;
 		console.error(`romp-gateway: ${err.message}`);
@@ -29,9 +34,12 @@ async function main(): Promise<void> {
 		omp: cfg.omp,
 		ompFound: cfg.ompFound,
 		stateDir: cfg.stateDir,
+		busyFile: process.env.XDG_RUNTIME_DIR ? join(process.env.XDG_RUNTIME_DIR, "romp-gateway.busy") : null,
 		taskOf: (cwd) => taskForPath(romp, cwd),
 	});
 	await agents.load();
+	const sessions = new LanSessions(cfg.passwordFile, cfg.stateDir);
+	await sessions.load();
 	const terms = new TerminalManager();
 	const app = createApp({
 		cfg,
@@ -39,11 +47,12 @@ async function main(): Promise<void> {
 		home,
 		user: userInfo().username,
 		host: hostname(),
-		auth: new Auth(cfg),
+		auth: new Auth(cfg, sessions),
 		files: new Files(roots, home),
 		terms,
 		agents,
 		shellState: new ShellStateStore(cfg.stateDir),
+		sessions,
 		romp,
 	});
 
@@ -68,6 +77,7 @@ async function main(): Promise<void> {
 		void server.stop();
 		terms.shutdown();
 		await agents.shutdown();
+		await sessions.flush();
 		await server.stop(true);
 		process.exit(0);
 	};

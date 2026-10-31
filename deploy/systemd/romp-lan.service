@@ -1,0 +1,8 @@
+[Unit]
+Description=Follow tailscale serve and renew the LAN certificate for ROMP
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/romp-lan sync

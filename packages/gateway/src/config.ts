@@ -15,6 +15,13 @@ export interface GatewayConfig {
 	allowLogins: string[];
 	/** Disables authentication. Only accepted on a loopback listen address. */
 	dev: boolean;
+	/**
+	 * uid of the LAN reverse proxy (`lan_proxy_user`). Its connections carry no Tailscale identity and must sign
+	 * in with the password in `passwordFile`. Null when LAN access is off.
+	 */
+	lanProxyUid: number | null;
+	/** Argon2 hash of the LAN sign-in password, written by `romp-gateway passwd`. */
+	passwordFile: string;
 	/** Realpaths of the directories the files API, terminals and agents may use. */
 	roots: string[];
 	shell: string;
@@ -31,6 +38,7 @@ const KEYS: Record<string, true> = {
 	listen: true,
 	allow_logins: true,
 	dev: true,
+	lan_proxy_user: true,
 	roots: true,
 	shell: true,
 	omp: true,
@@ -60,6 +68,10 @@ export interface ResolveContext {
 	/** Directory relative `web_dir`/`state_dir` values resolve against (the config file's directory). */
 	baseDir: string;
 	which(command: string): string | null;
+	/** uid of a Linux account, or null when it does not exist. */
+	uidOf(user: string): number | null;
+	/** uid the gateway runs as. */
+	selfUid: number;
 }
 
 /** Validates a parsed TOML document and fills in defaults. */
@@ -81,6 +93,15 @@ export function resolveConfig(raw: Record<string, unknown>, ctx: ResolveContext)
 		throw new ConfigError(`"allow_logins" must list at least one Tailscale login (or set "dev = true" for local development)`);
 	}
 	const roots = resolveRoots(optStringArray(raw, "roots") ?? ["~"], ctx.home);
+	const lanProxyUser = optString(raw, "lan_proxy_user");
+	let lanProxyUid: number | null = null;
+	if (lanProxyUser !== undefined) {
+		lanProxyUid = ctx.uidOf(lanProxyUser);
+		if (lanProxyUid === null) throw new ConfigError(`"lan_proxy_user" ${JSON.stringify(lanProxyUser)} is not a Linux account`);
+		if (lanProxyUid === 0 || lanProxyUid === ctx.selfUid) {
+			throw new ConfigError(`"lan_proxy_user" must be a dedicated account, not root or the gateway's own user`);
+		}
+	}
 
 	const shellName = optString(raw, "shell") ?? "/bin/bash";
 	const shell = ctx.which(shellName);
@@ -96,6 +117,8 @@ export function resolveConfig(raw: Record<string, unknown>, ctx: ResolveContext)
 		listen,
 		allowLogins,
 		dev,
+		lanProxyUid,
+		passwordFile: join(ctx.baseDir, "password"),
 		roots,
 		shell,
 		omp: omp ?? ompName,
@@ -185,9 +208,21 @@ export function loadConfig(argv: readonly string[], env: Record<string, string |
 		throw new ConfigError(`config file ${path} does not exist`);
 	}
 	try {
-		return resolveConfig(raw, { home, baseDir: dirname(path), which: (command) => Bun.which(command) });
+		return resolveConfig(raw, {
+			home,
+			baseDir: dirname(path),
+			which: (command) => Bun.which(command),
+			uidOf,
+			selfUid: process.getuid?.() ?? -1,
+		});
 	} catch (err) {
 		if (err instanceof ConfigError) throw new ConfigError(`${path}: ${err.message}`);
 		throw err;
 	}
+}
+
+function uidOf(user: string): number | null {
+	const result = Bun.spawnSync(["id", "-u", "--", user], { stdout: "pipe", stderr: "ignore" });
+	const uid = Number(result.stdout.toString().trim());
+	return result.success && Number.isInteger(uid) ? uid : null;
 }

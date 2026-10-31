@@ -65,7 +65,7 @@ afterAll(async () => {
 
 function makeAgent(id: string, prompt?: string, sessionFile: string | null = null): Agent {
 	const record: AgentRecord = { id, title: id, cwd: dir, createdAt: 1, sessionFile };
-	const agent = new Agent(record, null, { omp, persist: () => {} }, prompt);
+	const agent = new Agent(record, null, { omp, persist: () => {}, busyChanged: () => {} }, prompt);
 	agents.push(agent);
 	return agent;
 }

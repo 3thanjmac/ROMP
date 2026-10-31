@@ -7,6 +7,8 @@
  * - Dev-server proxy: `/proxy/:port/*` strips the prefix; `/absproxy/:port/*` forwards the full path
  *   (for apps configured with a matching base path, e.g. `vite --base /absproxy/5173/`). Both upgrade WebSockets.
  * - Static SPA is served from `/` with history fallback to `index.html`.
+ * - Connections through the LAN proxy (not Tailscale) need a session cookie from `POST /api/login`. Until then
+ *   only the static SPA and `/api/login` answer; everything else is 401 `login_required`.
  */
 
 // ───────────────────────────── Common ─────────────────────────────
@@ -18,9 +20,14 @@ export interface ApiError {
 	message: string;
 }
 
+/** `POST /api/login` (LAN connections only). 204 with a session cookie; 401 `bad_password`, 429 `rate_limited`, 403 when no password is set. */
+export interface LoginRequest {
+	password: string;
+}
+
 /** `GET /api/me` */
 export interface Me {
-	/** Tailscale login (`Tailscale-User-Login` header) or `dev` when auth is disabled. */
+	/** Tailscale login (`Tailscale-User-Login` header), the Linux user when signed in over the LAN, or `dev` when auth is disabled. */
 	login: string;
 	/** Tailscale display name, falls back to `login`. */
 	displayName: string;

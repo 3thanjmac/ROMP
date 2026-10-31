@@ -5,12 +5,16 @@ ROMP runs inside one Debian 13 VM. Every person gets a Linux account and their o
 ```mermaid
 flowchart LR
   P[Phone / laptop] -->|tailnet HTTPS| TS[tailscale serve in the VM]
+  L[Device on home Wi-Fi, no Tailscale] -.->|LAN HTTPS, password| C[Caddy on the VM's LAN address]
   TS -->|:443 → 127.0.0.1:7680| G1[romp-gateway as alice]
   TS -->|:8443 → 127.0.0.1:7681| G2[romp-gateway as bob]
+  C -.-> G1 & G2
   G1 & G2 -->|romp CLI| HUB[(/srv/romp/hub)]
   HUB -->|post-receive| Q[romp-queue as romp]
   Q -->|push / PR| GH[GitHub]
 ```
+
+The dotted LAN path is optional (section 9).
 
 ## 1. Create the VM (TrueNAS 25.10)
 
@@ -67,7 +71,7 @@ sudo chown -R "$USER": /opt/romp
 sudo /opt/romp/deploy/install.sh
 ```
 
-This installs Bun, pnpm, tsgo, mergiraf, gh and Node, creates the `romp` group and service user, builds the web app, initialises `/srv/romp`, and starts `romp-queue.service`.
+This installs Bun, pnpm, tsgo, mergiraf, gh and Node, creates the `romp` group and service user, builds the web app, initialises `/srv/romp`, and starts `romp-queue.service`. It also installs `romp-update.timer`, which can keep the VM up to date with GitHub; it is off until you switch it on (see [Updating](#updating)).
 
 Give the queue its credentials once. It pushes to GitHub and runs an agent to resolve merge conflicts:
 
@@ -160,12 +164,63 @@ The shared settings include a `designer` agent, a `/design` command, a design ga
 
 These changes are the user's own values, so later updates leave them in place.
 
+## 9. LAN access without Tailscale (optional)
+
+At home, a device can reach ROMP without the Tailscale app. It uses the same address as over Tailscale (`https://<vm>.<tailnet>.ts.net/`), so the Home Screen app works in both places. Devices that do run Tailscale need none of this: Tailscale already connects directly over the LAN when both ends are at home.
+
+How it works: Caddy listens on the VM's LAN address, on the same HTTPS ports as `tailscale serve`, and uses the certificate from `tailscale cert`. A DNS record on your router sends the `ts.net` name to that LAN address. LAN connections carry no Tailscale identity, so each person signs in with a password. Over Tailscale nothing changes and no password is asked.
+
+1. Give the VM a fixed LAN address: a DHCP reservation on the router is easiest.
+2. Turn LAN access on. It installs Caddy, fetches the certificate and starts a daily renewal timer (`romp-lan.timer`). It detects the LAN address; if it picks the wrong one, pass it explicitly:
+
+   ```sh
+   sudo romp-lan enable              # or: sudo romp-lan enable 192.168.1.50
+   ```
+
+   Turning it on restarts every gateway once, which closes open terminals and stops running agents.
+3. In the router's local DNS (Pi-hole, AdGuard Home and most routers call it "local DNS records" or "DNS overrides"), point the name printed in the previous step, such as `debian.tail1234.ts.net`, at the VM's LAN address.
+4. Each person sets the password they will sign in with on the LAN. In a ROMP terminal, or as an admin with `sudo -iu alice` in front:
+
+   ```sh
+   romp-gateway passwd
+   ```
+
+On the device, switch Tailscale off and open the usual address. ROMP shows a sign-in screen; after signing in, the device stays signed in until it has been unused for 30 days. Changing the password with `romp-gateway passwd` signs out every LAN device. After five wrong passwords, sign-in pauses for 30 seconds, and the pause doubles with each further miss, up to 15 minutes.
+
+`add-user.sh` and `install.sh` keep Caddy in line with `tailscale serve`, so new people get LAN access automatically (they still set a password). To turn LAN access off:
+
+```sh
+sudo romp-lan disable
+```
+
+Then remove the DNS record, so devices go back to using Tailscale.
+
+Some devices bypass the router's DNS and never see the record: Android's Private DNS (set it to Automatic or Off), Chrome's and Firefox's secure DNS, and VPN apps. On those, the name keeps pointing at the Tailscale address, which only answers while Tailscale is on.
+
 ## Updating
 
 ```sh
 cd /opt/romp && git pull        # or copy a new tarball
 sudo /opt/romp/deploy/install.sh    # also updates everyone's shared OMP settings
 ```
+
+### Automatic updates (off by default)
+
+To have the VM do this on its own, switch on the update timer once:
+
+```sh
+sudo systemctl enable --now romp-update.timer
+```
+
+It checks GitHub every 10 minutes. When the checkout's branch has new commits, it fast-forwards `/opt/romp` and runs `install.sh`. Fetching a public repo needs no credentials and costs nothing. `install.sh` never switches the timer on or off, so your choice survives updates.
+
+Restarting a gateway stops agents that are in the middle of a turn and closes open terminals. So an update waits while any agent is working or the merge queue is landing a task, and tries again 10 minutes later. Agents resume their conversations after the restart; terminals start fresh. Whatever reaches the branch on GitHub runs as root on the VM, with no one checking it first.
+
+- See what it did: `journalctl -u romp-update` (for example, `update to 1a2b3c4 waits: agents are running for alice`).
+- Check now instead of waiting: `sudo romp-update` (works with the timer off too).
+- Turn it off again: `sudo systemctl disable --now romp-update.timer`.
+- It never overwrites work on the VM: if `/opt/romp` has commits that are not on GitHub, or uncommitted changes in the way, it logs the reason and does nothing.
+- If `install.sh` fails (for example, a build error), that commit is not retried. Fix the problem and push a new commit, or run `sudo /opt/romp/deploy/install.sh` yourself.
 
 ## Troubleshooting
 
@@ -235,7 +290,9 @@ Don't write `~/.bun/bin/omp` there. Your own shell expands `~` to your home fold
 |---|---|---|
 | `No Tailscale identity: open the gateway through tailscale serve` | The page was opened on the gateway port directly, such as `127.0.0.1:7680` | Use the `https://...ts.net` address from `tailscale serve status` |
 | `<login> is not allowed on this gateway` | The login given to `add-user.sh` doesn't match the one Tailscale reports | Fix `allow_logins` in that user's `~/.config/romp/gateway.toml`, then run `systemctl --user restart romp-gateway` as them |
-| The page never loads | The device isn't on the tailnet | Switch on the VPN in the Tailscale app |
+| The page never loads | The device isn't on the tailnet, or (on the LAN) the DNS record is missing or bypassed | Switch on the VPN in the Tailscale app, or check section 9 |
+| `Sign-in isn't enabled on this gateway` (LAN) | That person has not set a LAN password | Run `romp-gateway passwd` as them |
+| `Too many attempts. Try again in N s.` (LAN) | Five or more wrong passwords in a row | Wait, then sign in; over Tailscale there is no lockout |
 
 Re-running `add-user.sh` doesn't fix a wrong login, because it keeps an existing `gateway.toml`.
 
