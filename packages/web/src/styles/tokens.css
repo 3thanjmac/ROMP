@@ -175,6 +175,7 @@
 	--pane-min: 120px;
 	--palette-w: 40rem;
 	--dialog-w: 28rem;
+	--settings-w: 40rem;
 	--menu-min-w: 12rem;
 	--menu-max-h: 24rem;
 	--toast-w: 22rem;
@@ -232,6 +233,7 @@
 	--z-split: 10;
 	--z-banner: 20;
 	--z-bar: 100;
+	--z-page: 150;
 	--z-popover: 200;
 	--z-sheet: 300;
 	--z-dialog: 400;

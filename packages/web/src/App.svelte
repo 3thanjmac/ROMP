@@ -17,7 +17,7 @@
 
 	function run(action: ShellAction): boolean {
 		// Workspace shortcuts would edit a layout that is not on screen.
-		if (signIn.required) return false;
+		if (signIn.required || frameUi.settings) return false;
 		const focused = shell.active.focusedId;
 		switch (action.type) {
 			case "focus":

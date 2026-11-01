@@ -6,15 +6,17 @@
 	import OverviewSheet from "./OverviewSheet.svelte";
 	import RenameWorkspaceDialog from "./RenameWorkspaceDialog.svelte";
 	import { shell } from "./shell.svelte";
-	import SettingsDialog from "./SettingsDialog.svelte";
+	import SettingsPage from "./SettingsPage.svelte";
 	import ShortcutSheet from "./ShortcutSheet.svelte";
 	import TopBar from "./TopBar.svelte";
+	import { frameUi } from "./ui.svelte";
 	import { viewport } from "./viewport.svelte";
 
 	const phone = $derived(viewport.layout === "phone");
 </script>
 
-<div class="app" class:phone>
+<!-- Settings covers the frame instead of replacing it, so panes and their sessions stay mounted. -->
+<div class="app" class:phone inert={frameUi.settings}>
 	{#if !phone}<TopBar />{/if}
 	<main class="content">
 		{#each shell.state.workspaces as ws (ws.id)}
@@ -32,7 +34,7 @@
 {/if}
 <ShortcutSheet />
 <RenameWorkspaceDialog />
-<SettingsDialog />
+{#if frameUi.settings}<SettingsPage />{/if}
 
 <style>
 	.app {

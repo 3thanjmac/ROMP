@@ -44,7 +44,7 @@
 		<span class="tabular count">{ws.windows.length ? `${index + 1}/${ws.windows.length}` : "0"}</span>
 	</button>
 
-	<button class="item" aria-label="Settings" onclick={() => (frameUi.settings = true)} use:tooltip>
+	<button class="item" aria-label="Settings" onclick={() => frameUi.openSettings()} use:tooltip>
 		<Icon icon={Icons.Settings} size="lg" />
 	</button>
 

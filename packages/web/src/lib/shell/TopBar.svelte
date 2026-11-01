@@ -37,7 +37,7 @@
 		<Button size="sm" icon={Icons.Add} onclick={() => (frameUi.palette = true)}>
 			New window <kbd>Alt O</kbd>
 		</Button>
-		<IconButton label="Settings" icon={Icons.Settings} size="bar" onclick={() => (frameUi.settings = true)} />
+		<IconButton label="Settings" icon={Icons.Settings} size="bar" onclick={() => frameUi.openSettings()} />
 		{#if session.me}
 			{@const me = session.me}
 			<span class="me" role="img" aria-label="{me.displayName} · {me.user}@{me.host}" use:tooltip>

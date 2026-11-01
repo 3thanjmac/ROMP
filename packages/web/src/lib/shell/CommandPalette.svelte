@@ -128,7 +128,7 @@
 			WIDTH_PRESETS.forEach((w, i) => cmd(`width:${i}`, `Width: ${WIDTH_LABELS[i]}`, Icons.ModeScroll, () => shell.setWidth(shell.active.focusedId!, w)));
 		}
 		cmd("shortcuts", "Keyboard shortcuts", Icons.Shortcuts, () => (frameUi.shortcuts = true));
-		cmd("settings", "Settings", Icons.Settings, () => (frameUi.settings = true));
+		cmd("settings", "Settings", Icons.Settings, () => frameUi.openSettings());
 		return out;
 	});
 

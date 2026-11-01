@@ -73,6 +73,7 @@ export const Icons = {
 	Tasks: GitBranch,
 	// UI
 	Close: X,
+	Back: ArrowLeft,
 	Add: Plus,
 	Overview: Layers,
 	ModeScroll: GalleryHorizontalEnd,
