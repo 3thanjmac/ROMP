@@ -69,7 +69,7 @@ afterAll(async () => {
 
 function makeAgent(id: string, prompt?: string, sessionFile: string | null = null): Agent {
 	const record: AgentRecord = { id, title: id, cwd: dir, createdAt: 1, sessionFile };
-	const agent = new Agent(record, null, { omp, persist: () => {}, busyChanged: () => {} }, prompt);
+	const agent = new Agent(record, null, { omp, persist: () => {}, busyChanged: () => {}, notify: () => {} }, prompt);
 	agents.push(agent);
 	return agent;
 }
@@ -153,7 +153,7 @@ test("an omp that exits before ready reports its stderr and closes 4503 instead 
 	);
 	chmodSync(failing, 0o755);
 	const record: AgentRecord = { id: "a4", title: "a4", cwd: dir, createdAt: 1, sessionFile: null };
-	const agent = new Agent(record, null, { omp: failing, persist: () => {}, busyChanged: () => {} }, undefined);
+	const agent = new Agent(record, null, { omp: failing, persist: () => {}, busyChanged: () => {}, notify: () => {} }, undefined);
 	agents.push(agent);
 	const a = new FakeSocket();
 	agent.attach(a.socket);

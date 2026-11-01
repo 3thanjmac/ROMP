@@ -3,6 +3,7 @@ import type { Subprocess } from "bun";
 import { errorMessage, isRecord, withTimeout } from "../util.ts";
 import { sendJson, type Socket } from "../ws.ts";
 import { ChunkDecoder, FrameError, LineSplitter, parseJson, type RpcFrame } from "./frames.ts";
+import { type AgentNotice, exitNotice, NoticeTracker } from "./notices.ts";
 
 /** What survives a gateway restart. */
 export interface AgentRecord {
@@ -20,6 +21,8 @@ export interface AgentHost {
 	persist(): void;
 	/** Called whenever the agent starts or finishes a turn. */
 	busyChanged(): void;
+	/** Called when the agent needs the user, finishes a turn, or stops unexpectedly. */
+	notify(notice: AgentNotice): void;
 }
 
 interface RpcResponse {
@@ -74,6 +77,7 @@ export class Agent {
 	private readonly joining = new Map<Socket, AgentServerMsg[] | null>();
 	private readonly pendingUi = new Map<string, RpcFrame>();
 	private readonly waiters = new Map<string, Waiter>();
+	private readonly notices = new NoticeTracker();
 	private nextId = 0;
 
 	constructor(
@@ -268,6 +272,7 @@ export class Agent {
 			else sendJson(waiter.ws, { t: "response", reqId: waiter.reqId, success: false, error: "omp exited" } satisfies AgentServerMsg);
 		}
 		if (this.closed) return;
+		this.host.notify(exitNotice(code));
 		this.broadcast({ t: "exit", code });
 		this.broadcastInfo();
 	}
@@ -311,6 +316,8 @@ export class Agent {
 			this.setBusy(false);
 			this.broadcastInfo();
 		}
+		const notice = this.notices.frame(frame);
+		if (notice) this.host.notify(notice);
 	}
 
 	get isBusy(): boolean {

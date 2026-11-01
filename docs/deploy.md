@@ -132,6 +132,9 @@ This adds the login to `allow_logins` in their existing `~/.config/romp/gateway.
 2. Get the address on the VM with `tailscale serve status`. It prints one URL per person, such as `https://debian.tail1234.ts.net/` for port 443 and `https://debian.tail1234.ts.net:8443/` for 8443. Open it in the phone's browser. The first load can take a few seconds while Tailscale fetches the HTTPS certificate.
 3. Install it as an app. In Safari, tap Share, then Add to Home Screen. In Chrome on Android, open the ⋮ menu and choose Add to Home screen (or Install app). iOS reads the app's status-bar settings only when it is added, so after a ROMP update that changes them, remove the Home Screen icon and add it again.
 4. The first terminal opened in ROMP offers OMP's setup wizard, which signs in to AI providers (Anthropic, OpenRouter, ...) and picks models. **Settings → Set up OMP**, or `omp setup` in a terminal, reruns it at any time.
+5. For notifications, open **Settings → Notifications → Turn on notifications** and allow them. On an iPhone or iPad (iOS 16.4 or later) this only works in the Home Screen app from step 3, not in a Safari tab. **Send test notification** checks the setup end to end. A notification arrives when an agent asks a question, needs approval, finishes, or stops unexpectedly, and tapping it opens that agent. iOS shows them as banners and on the lock screen. **Settings → Notifications → ROMP** on the phone controls lock screen display and previews.
+
+Notifications go through the phone vendor's push service (Apple, Google, Microsoft or Mozilla), not through Tailscale. The VM needs outbound HTTPS to it, and the phone needs internet access. The message is end-to-end encrypted, so the push service can't read it.
 
 A laptop works the same way: join the tailnet and open the same URL in any browser.
 

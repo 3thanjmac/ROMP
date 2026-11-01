@@ -10,7 +10,15 @@ import {
 	updateRepoSettings,
 	writeGitIdentity,
 } from "@romp/core";
-import type { AgentClientMsg, GitIdentity, ListeningPort, Me, TaskCreated, TermClientMsg } from "@romp/protocol";
+import type {
+	AgentClientMsg,
+	GitIdentity,
+	ListeningPort,
+	Me,
+	PushConfig,
+	TaskCreated,
+	TermClientMsg,
+} from "@romp/protocol";
 import type { Server, WebSocketHandler } from "bun";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
@@ -33,6 +41,7 @@ import {
 } from "./http.ts";
 import type { Roots } from "./paths.ts";
 import { listeningSockets, socketProcessNames } from "./procnet.ts";
+import { parseEndpoint, parseSubscription, type PushService } from "./push.ts";
 import { checkPort, parseProxyPath, proxyHttp, proxySocket, proxyWebSocket } from "./proxy.ts";
 import { Router } from "./router.ts";
 import { type LanSessions, sessionCookie, sessionCookieName } from "./sessions.ts";
@@ -57,6 +66,7 @@ export interface AppDeps {
 	agents: AgentManager;
 	shellState: ShellStateStore;
 	sessions: LanSessions;
+	push: PushService;
 	romp: RompEnv;
 }
 
@@ -248,6 +258,29 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 			update[key] = value.trim();
 		}
 		return json(await writeGitIdentity(romp, update));
+	});
+
+	// ── Push notifications ──
+	router.on("GET", "/api/push", () => json({ publicKey: deps.push.publicKey } satisfies PushConfig));
+	router.on("PUT", "/api/push/subscription", async ({ req }) => {
+		const subscription = parseSubscription(await readJson(req, SMALL_BODY));
+		// Apple refuses VAPID tokens whose subject is not a real site, so name the one the device subscribed from.
+		deps.push.subscribe(subscription, `https://${req.headers.get("host") ?? deps.host}`);
+		return noContent();
+	});
+	router.on("DELETE", "/api/push/subscription", async ({ req }) => {
+		deps.push.unsubscribe(parseEndpoint(await readJson(req, SMALL_BODY)));
+		return noContent();
+	});
+	router.on("PUT", "/api/push/presence", async ({ req }) => {
+		const body = await readJson(req, SMALL_BODY);
+		if (typeof body.active !== "boolean") throw badRequest(`"active" must be true or false`);
+		deps.push.setPresence(parseEndpoint(body), body.active);
+		return noContent();
+	});
+	router.on("POST", "/api/push/test", async ({ req }) => {
+		await deps.push.test(parseEndpoint(await readJson(req, SMALL_BODY)));
+		return noContent();
 	});
 
 	// ── Terminals ──

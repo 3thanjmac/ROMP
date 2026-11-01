@@ -369,3 +369,40 @@ export interface ListeningPort {
 	/** Process name when readable from /proc. */
 	process: string | null;
 }
+
+// ───────────────────────────── Push notifications ─────────────────────────────
+
+/** `GET /api/push`: the VAPID key a browser subscribes with (`applicationServerKey`), base64url. */
+export interface PushConfig {
+	publicKey: string;
+}
+
+/** `PUT /api/push/subscription` body: a browser `PushSubscription.toJSON()`. 204; re-sending one is harmless. */
+export interface PushSubscriptionInput {
+	endpoint: string;
+	keys: { p256dh: string; auth: string };
+}
+
+/** `DELETE /api/push/subscription` and `POST /api/push/test` (502 `push_failed` with the push service's answer) body. */
+export interface PushEndpoint {
+	endpoint: string;
+}
+
+/**
+ * `PUT /api/push/presence` body, 204. A device reports `active` every 15 s while ROMP is visible and focused, and
+ * `false` when it stops being so; the gateway skips pushes to it until 40 s after the last `active` report.
+ */
+export interface PushPresence {
+	endpoint: string;
+	active: boolean;
+}
+
+/** The decrypted push payload the service worker shows. `tag` groups notifications (one per agent). */
+export interface PushMessage {
+	title: string;
+	body: string;
+	tag: string;
+	/** Agent to open when the notification is tapped. */
+	agentId: string | null;
+	cwd: string | null;
+}

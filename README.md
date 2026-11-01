@@ -33,6 +33,7 @@ flowchart LR
   - **Ship** squashes the task and hands it to a merge queue. The queue rebases, runs your tests, lets a resolver agent fix leftover conflicts, then pushes to `main` (default) or opens a PR with auto-merge (per-repo setting).
 - **Multi-user.** Each person has a Linux account and their own gateway. Everyone shares the hub repos and the merge queue, so two people can run agents on the same repository at once.
 - **Installable** as a phone app (PWA), dark and light themes.
+- **Push notifications** when an agent asks a question, needs approval, finishes, or stops unexpectedly. Turn them on per device in **Settings**; a device that has ROMP open and focused gets none.
 
 ## Repository layout
 
@@ -99,7 +100,7 @@ You need a Debian 13 machine or VM, a Tailscale account, and an account with a m
 | `shell` | `/bin/bash` | Terminal shell |
 | `omp` | `omp` | Path to the omp binary |
 | `web_dir` | `packages/web/dist` | Built web app |
-| `state_dir` | `~/.local/state/romp` | Saved layout and agent sessions |
+| `state_dir` | `~/.local/state/romp` | Saved layout, agent sessions, and push notification keys and devices (`push.json`) |
 
 The gateway trusts the Tailscale identity headers only on connections from sockets owned by root (tailscaled) or by the gateway's own user, so another local user can't impersonate someone. Connections from `lan_proxy_user` never get Tailscale identity; they need a session cookie from a password sign-in (argon2id hash in `~/.config/romp/password`, sessions in `state_dir/sessions.json`). Agents and terminals can only start in directories inside `roots`.
 

@@ -13,6 +13,9 @@ import type {
 	ListeningPort,
 	LoginRequest,
 	Me,
+	PushConfig,
+	PushEndpoint,
+	PushSubscriptionInput,
 	RepoAdd,
 	RepoInfo,
 	RepoSettingsUpdate,
@@ -114,6 +117,13 @@ export const api = {
 	gitIdentity: {
 		get: () => request<GitIdentity>("GET", "/api/git-identity"),
 		set: (update: Partial<GitIdentity>) => request<GitIdentity>("PUT", "/api/git-identity", update),
+	},
+	push: {
+		config: () => request<PushConfig>("GET", "/api/push"),
+		subscribe: (sub: PushSubscriptionInput) => request<undefined>("PUT", "/api/push/subscription", sub),
+		unsubscribe: (endpoint: string) =>
+			request<undefined>("DELETE", "/api/push/subscription", { endpoint } satisfies PushEndpoint),
+		test: (endpoint: string) => request<undefined>("POST", "/api/push/test", { endpoint } satisfies PushEndpoint),
 	},
 	/** LAN sign-in; the gateway answers with the session cookie. */
 	login: (req: LoginRequest) => request<undefined>("POST", "/api/login", req),

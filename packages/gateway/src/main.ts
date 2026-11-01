@@ -10,6 +10,7 @@ import { ConfigError, loadConfig } from "./config.ts";
 import { Files } from "./files.ts";
 import { passwd } from "./passwd.ts";
 import { Roots } from "./paths.ts";
+import { PushService } from "./push.ts";
 import { LanSessions } from "./sessions.ts";
 import { ShellStateStore } from "./shellstate.ts";
 import { TerminalManager } from "./terminals.ts";
@@ -30,12 +31,16 @@ async function main(): Promise<void> {
 	const home = realpathSync(homedir());
 	const roots = new Roots(cfg.roots, home);
 	const romp = rompEnv();
+	const push = new PushService(cfg.stateDir);
+	await push.load();
 	const agents = new AgentManager({
 		omp: cfg.omp,
 		ompFound: cfg.ompFound,
 		stateDir: cfg.stateDir,
 		busyFile: process.env.XDG_RUNTIME_DIR ? join(process.env.XDG_RUNTIME_DIR, "romp-gateway.busy") : null,
 		taskOf: (cwd) => taskForPath(romp, cwd),
+		notify: (agent, notice) =>
+			push.notify({ title: agent.title, body: notice.text, tag: `agent-${agent.id}`, agentId: agent.id, cwd: agent.cwd }),
 	});
 	await agents.load();
 	const sessions = new LanSessions(cfg.passwordFile, cfg.stateDir);
@@ -53,6 +58,7 @@ async function main(): Promise<void> {
 		agents,
 		shellState: new ShellStateStore(cfg.stateDir),
 		sessions,
+		push,
 		romp,
 	});
 
@@ -78,6 +84,7 @@ async function main(): Promise<void> {
 		terms.shutdown();
 		await agents.shutdown();
 		await sessions.flush();
+		await push.flush();
 		await server.stop(true);
 		process.exit(0);
 	};

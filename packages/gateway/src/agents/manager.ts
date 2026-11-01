@@ -5,6 +5,7 @@ import { basename, join } from "node:path";
 import { HttpError } from "../http.ts";
 import { errnoCode, errorMessage, isRecord, newId, writeFileAtomic } from "../util.ts";
 import { Agent, type AgentRecord } from "./agent.ts";
+import type { AgentNotice } from "./notices.ts";
 
 export interface AgentManagerOptions {
 	omp: string;
@@ -17,6 +18,8 @@ export interface AgentManagerOptions {
 	busyFile: string | null;
 	/** `AgentInfo.task` for a working directory. */
 	taskOf(cwd: string): AgentInfo["task"];
+	/** Forwards an agent's notice to the user's devices. */
+	notify(agent: AgentRecord, notice: AgentNotice): void;
 }
 
 /** Owns every agent session and persists them to `<state_dir>/agents.json` so they survive restarts. */
@@ -107,7 +110,12 @@ export class AgentManager {
 	}
 
 	private makeAgent(record: AgentRecord, prompt: string | undefined): Agent {
-		const host = { omp: this.opts.omp, persist: () => this.persist(), busyChanged: () => this.busyChanged() };
+		const host = {
+			omp: this.opts.omp,
+			persist: () => this.persist(),
+			busyChanged: () => this.busyChanged(),
+			notify: (notice: AgentNotice) => this.opts.notify(record, notice),
+		};
 		return new Agent(record, this.opts.taskOf(record.cwd), host, prompt);
 	}
 

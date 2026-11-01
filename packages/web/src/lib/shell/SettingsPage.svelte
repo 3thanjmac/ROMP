@@ -3,6 +3,7 @@
 	import { onMount } from "svelte";
 	import { api, errorMessage } from "../api";
 	import { Icons } from "../icons";
+	import { disablePush, enablePush, push, testPush } from "../push.svelte";
 	import AsyncButton from "../ui/AsyncButton.svelte";
 	import Button from "../ui/Button.svelte";
 	import IconButton from "../ui/IconButton.svelte";
@@ -104,6 +105,35 @@
 		}
 	}
 
+	type PushAction = "enable" | "test" | "disable";
+	const PUSH_RUN: Record<PushAction, () => Promise<void>> = { enable: enablePush, test: testPush, disable: disablePush };
+	const PUSH_FAILURE: Record<PushAction, string> = {
+		enable: "Couldn't turn on notifications.",
+		test: "Couldn't send the test notification.",
+		disable: "Couldn't turn off notifications.",
+	};
+	let pushBusy: PushAction | null = $state(null);
+	let pushFailed: PushAction | null = $state(null);
+	let pushError: string | null = $state(null);
+	let pushSent = $state(false);
+
+	/** Errors stay on the page with a Retry instead of propagating out of AsyncButton. */
+	async function runPush(action: PushAction) {
+		if (pushBusy) return;
+		pushBusy = action;
+		pushFailed = pushError = null;
+		pushSent = false;
+		try {
+			await PUSH_RUN[action]();
+			pushSent = action === "test";
+		} catch (err) {
+			pushFailed = action;
+			pushError = errorMessage(err);
+		} finally {
+			pushBusy = null;
+		}
+	}
+
 	/** Opens a terminal running `command`, or focuses the window that already runs it. */
 	function run(title: string, command: string[]) {
 		frameUi.closeSettings();
@@ -186,6 +216,81 @@
 			{:else}
 				<p class="meta" role="status" aria-live="polite">
 					{#if !saved}Loading Git identity…{:else if status === "saving"}Saving…{:else if status === "saved"}Saved{/if}
+				</p>
+			{/if}
+		</section>
+		<section aria-labelledby="settings-notifications">
+			<h2 id="settings-notifications">Notifications</h2>
+			<p class="note">
+				Get a banner when an agent asks a question, needs approval, finishes, or stops unexpectedly. ROMP stays quiet
+				while it is open and focused on this device.
+			</p>
+			{#if push.support === "unsupported"}
+				<p>This browser or connection can't use push notifications. Open ROMP over HTTPS in a supported browser.</p>
+			{:else if push.support === "install"}
+				<p>
+					On iPhone or iPad, tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>. Open ROMP from the
+					Home Screen and come back here to turn on notifications.
+				</p>
+			{:else if push.ready && push.permission === "denied"}
+				<p>Notifications are blocked for ROMP. Allow them in your browser or device settings, then reload ROMP.</p>
+			{:else if push.ready && push.subscribed}
+				<div class="actions">
+					<AsyncButton
+						size="sm"
+						variant="secondary"
+						icon={Icons.Send}
+						action={() => runPush("test")}
+						pendingLabel="Sending…"
+						disabled={pushBusy !== null}
+					>
+						Send test notification
+					</AsyncButton>
+					<AsyncButton
+						size="sm"
+						variant="ghost"
+						action={() => runPush("disable")}
+						pendingLabel="Turning off…"
+						disabled={pushBusy !== null}
+					>
+						Turn off notifications
+					</AsyncButton>
+				</div>
+			{:else if push.ready}
+				<div class="actions">
+					<AsyncButton
+						size="sm"
+						action={() => runPush("enable")}
+						pendingLabel="Turning on…"
+						disabled={pushBusy !== null}
+					>
+						Turn on notifications
+					</AsyncButton>
+				</div>
+			{/if}
+			{#if pushError && pushFailed}
+				{@const failed = pushFailed}
+				<div class="error-row">
+					<p class="field-error" role="alert">{PUSH_FAILURE[failed]} {pushError}</p>
+					<AsyncButton
+						size="sm"
+						variant="secondary"
+						action={() => runPush(failed)}
+						pendingLabel="Retrying…"
+						disabled={pushBusy !== null}
+					>
+						Retry
+					</AsyncButton>
+				</div>
+			{:else if push.support === "ok"}
+				<p class="meta" role="status" aria-live="polite">
+					{#if !push.ready}
+						Checking notification settings…
+					{:else if pushSent}
+						Test notification sent.
+					{:else if push.permission !== "denied" && !pushBusy}
+						{push.subscribed ? "Notifications are on for this device." : "Notifications are off for this device."}
+					{/if}
 				</p>
 			{/if}
 		</section>
@@ -283,6 +388,11 @@
 	}
 	.error-row .field-error {
 		margin-top: 0;
+	}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--sp-2);
 	}
 	.row {
 		display: grid;

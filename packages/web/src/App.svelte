@@ -5,15 +5,27 @@
 	import LoginScreen from "./lib/shell/LoginScreen.svelte";
 	import { signIn } from "./lib/conn/signin.svelte";
 	import { installShortcuts, type ShellAction } from "./lib/shell/keyboard";
-	import { launch, launchCwd } from "./lib/shell/launcherItems";
+	import { launch, launchCwd, openAgent } from "./lib/shell/launcherItems";
 	import { initPersistence, persistence } from "./lib/shell/persist.svelte";
-	import { loadMe } from "./lib/shell/session.svelte";
+	import { loadMe, session } from "./lib/shell/session.svelte";
 	import { shell } from "./lib/shell/shell.svelte";
 	import { frameUi } from "./lib/shell/ui.svelte";
 	import { viewport } from "./lib/shell/viewport.svelte";
+	import { initPush, push } from "./lib/push.svelte";
 
 	void loadMe();
 	void initPersistence();
+	void initPush();
+
+	// A tapped notification opens its agent once the layout is loaded.
+	$effect(() => {
+		const target = push.tapped;
+		if (!target || !persistence.ready || signIn.required) return;
+		push.tapped = null;
+		frameUi.closeSettings();
+		frameUi.launcher = frameUi.palette = frameUi.overview = false;
+		openAgent(target.agentId, target.cwd ?? session.me?.home ?? "/");
+	});
 
 	function run(action: ShellAction): boolean {
 		// Workspace shortcuts would edit a layout that is not on screen.
