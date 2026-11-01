@@ -94,7 +94,7 @@ sudo /opt/romp/deploy/add-user.sh bob bob@example.com 7681 8443
 The arguments, in order:
 
 1. The Linux account name.
-2. The person's Tailscale login. The gateway rejects requests from any other login, and the match must be exact. Once the person's phone or laptop has joined the tailnet, `tailscale status` on the VM shows the owner login next to each device, for example `alice@github` or an email address. The admin console lists it under Users too. Pass `-` if they don't have one yet: Tailscale requests are then all refused, and they can only sign in over the LAN with a password (section 9). Once they have a login, run `add-user.sh` again with it and the same other arguments; it adds the login to their existing gateway config and restarts the gateway.
+2. The person's Tailscale login. The gateway rejects requests from any other login, and the match must be exact. Once the person's phone or laptop has joined the tailnet, `tailscale status` on the VM shows the owner login next to each device, for example `alice@github` or an email address. The admin console lists it under Users too. Pass `-` for someone who doesn't have one yet (see below).
 3. The gateway port. The gateway listens on it inside the VM only. Give each person a different one.
 4. The HTTPS port the person's browser connects to. Tailscale serves HTTPS only on 443, 8443 and 10000, so one VM fits three people.
 
@@ -107,6 +107,24 @@ Each person then sets up their own account from **Settings** in the web app. Non
 - **AI providers**: runs `omp setup` in a terminal to sign in to providers and pick models.
 
 An admin can do the same from a shell by putting `sudo -iu alice` in front of each command.
+
+### Adding someone before they have Tailscale
+
+Pass `-` as the login to set the person up now and give them Tailscale access later:
+
+```sh
+sudo /opt/romp/deploy/add-user.sh carol - 7682 10000
+```
+
+Their gateway refuses every Tailscale request (the browser shows `No Tailscale login is allowed on this gateway yet`), so until they have a login they can only sign in over the LAN with a password. That needs LAN access turned on (section 9) and a password set with `sudo -iu carol romp-gateway passwd`. Without LAN access, nobody can open their gateway yet; the script warns about this.
+
+Once they have joined the tailnet (invite them from the Tailscale admin console, or share the VM with them), run the script again with their login and the same other arguments:
+
+```sh
+sudo /opt/romp/deploy/add-user.sh carol carol@github 7682 10000
+```
+
+This adds the login to `allow_logins` in their existing `~/.config/romp/gateway.toml` and restarts their gateway. The LAN password keeps working. Run it again the same way to allow a second login. The script only adds logins: to remove one, edit `allow_logins` by hand and run `systemctl --user restart romp-gateway` as them.
 
 ## 6. Open ROMP on a phone
 
@@ -186,7 +204,7 @@ How it works: Caddy listens on the VM's LAN address, on the same HTTPS ports as 
 
 On the device, switch Tailscale off and open the usual address. ROMP shows a sign-in screen; after signing in, the device stays signed in until it has been unused for 30 days. Changing the password with `romp-gateway passwd` signs out every LAN device. After five wrong passwords, sign-in pauses for 30 seconds, and the pause doubles with each further miss, up to 15 minutes.
 
-`add-user.sh` and `install.sh` keep Caddy in line with `tailscale serve`, so new people get LAN access automatically (they still set a password). To turn LAN access off:
+`add-user.sh` and `install.sh` keep Caddy in line with `tailscale serve`, so new people get LAN access automatically (they still set a password). Someone without a Tailscale login can use ROMP this way until they get one (section 5). To turn LAN access off:
 
 ```sh
 sudo romp-lan disable
