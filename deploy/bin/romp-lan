@@ -71,7 +71,8 @@ lan_sync() {
 	# `tailscale cert` reuses the cached certificate until it is close to expiring.
 	install -d -m 0750 -o root -g "$PROXY_USER" "$TLS_DIR"
 	local cert="$TLS_DIR/$host.crt" key="$TLS_DIR/$host.key" before after
-	before="$(cat "$cert" "$key" 2>/dev/null | sha256sum)"
+	# No certificate yet on the first run: hash nothing rather than let pipefail end the script silently.
+	before="$({ cat "$cert" "$key" 2>/dev/null || true; } | sha256sum)"
 	tailscale cert --cert-file "$cert" --key-file "$key" "$host" >/dev/null 2>&1 ||
 		die "tailscale cert failed; HTTPS must be enabled for the tailnet (it is for tailscale serve)"
 	chown "root:$PROXY_USER" "$cert" "$key"
