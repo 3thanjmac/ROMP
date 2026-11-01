@@ -7,6 +7,7 @@
 	import { onDestroy, tick, untrack } from "svelte";
 	import { api, errorMessage } from "../../lib/api";
 	import { Socket } from "../../lib/conn/socket.svelte";
+	import { openExternal } from "../../lib/external";
 	import { tildify } from "../../lib/format";
 	import { Icons } from "../../lib/icons";
 	import { isShellChord } from "../../lib/shell/keyboard";
@@ -441,7 +442,7 @@
 			});
 			const f = new FitAddon();
 			t.loadAddon(f);
-			t.loadAddon(new WebLinksAddon((_e, uri) => window.open(uri, "_blank", "noopener")));
+			t.loadAddon(new WebLinksAddon((_e, uri) => openExternal(uri)));
 			t.loadAddon(new ClipboardAddon(undefined, osc52));
 			t.attachCustomKeyEventHandler((e) => !isShellChord(e) && !softDelete.skip(e) && !nativeClipboardKey(e));
 			t.open(host);

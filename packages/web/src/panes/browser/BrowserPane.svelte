@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ListeningPort } from "@romp/protocol";
 	import { api, errorMessage } from "../../lib/api";
+	import { openExternal } from "../../lib/external";
 	import { Icons } from "../../lib/icons";
 	import type { PaneContext } from "../../lib/shell/pane.svelte";
 	import type { WindowOf } from "../../lib/shell/types";
@@ -90,7 +91,7 @@
 	}
 
 	function external() {
-		if (url) window.open(url, "_blank", "noopener");
+		if (url) openExternal(url);
 	}
 </script>
 

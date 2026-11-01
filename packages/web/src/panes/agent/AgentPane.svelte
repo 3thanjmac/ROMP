@@ -2,6 +2,7 @@
 	import { api, errorMessage } from "../../lib/api";
 	import { AgentSession } from "../../lib/agent/session.svelte";
 	import type { Effect, SendKind, UiAnswer } from "../../lib/agent/types";
+	import { openExternal } from "../../lib/external";
 	import { tildify } from "../../lib/format";
 	import { Icons } from "../../lib/icons";
 	import type { PaneContext } from "../../lib/shell/pane.svelte";
@@ -49,7 +50,7 @@
 			case "open-url":
 				toast({
 					message: effect.instructions ?? "The agent wants to open a link.",
-					action: { label: "Open", run: () => window.open(effect.url, "_blank", "noopener,noreferrer") },
+					action: { label: "Open", run: () => openExternal(effect.url) },
 				});
 				break;
 		}
