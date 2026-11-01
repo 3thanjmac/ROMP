@@ -17,7 +17,7 @@ How the ROMP web app looks and behaves, and why. The code is the reference for e
 | Layout | Width | Chrome |
 |---|---|---|
 | Phone | < 640 px | Bottom bar: workspace menu, overview (`focused / total`, warning dot when an agent needs input), settings, and the filled `+` launcher on the far right. No top bar. Workspaces are always in scroll mode. |
-| Tablet | 640 to 1023 px | Top bar: workspace tabs, a strip minimap (scroll mode), offline chip, scroll/tile switch, "New window" (`Alt O`), avatar. |
+| Tablet | 640 to 1023 px | Top bar: workspace tabs, a strip minimap (scroll mode), offline chip, scroll/tile switch, "New window" (`Alt O`), settings, avatar. |
 | Desktop | ≥ 1024 px | Same as tablet. |
 
 The app is sized from `visualViewport` (`--vvh`), not `100vh`, so the on-screen keyboard never covers the terminal's extra-keys row or the agent composer. On a phone the bottom bar hides while the keyboard is open.
@@ -37,6 +37,7 @@ One list of items feeds three surfaces: new terminal, agent, files, browser, tas
 - **Phone launcher**: a bottom sheet with a grid of window kinds.
 - **Phone overview**: a sheet with workspace chips, the current workspace's windows, and running sessions that no window shows (minimized). Tap focuses or attaches, drag reorders, swipe left closes (with Undo). Sheets close by dragging down anywhere on them.
 - **Desktop command palette** (`Alt O`): fuzzy search over windows, new windows, running sessions, tasks and commands.
+- **Settings** is a dialog on every screen size, opened from the bottom bar (phone), the top bar or the command palette. Its one-time server setup actions close the dialog and open a terminal window running the displayed command (`sudo -iu romp gh auth login`, `sudo -iu romp omp setup`); the window's Restart runs it again.
 
 ## Keyboard shortcuts
 

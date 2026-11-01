@@ -10,11 +10,12 @@ type Obj = Record<string, unknown>;
 
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const optString = (v: unknown) => v === undefined || typeof v === "string";
+const optStrings = (v: unknown) => v === undefined || (Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === "string"));
 
 function validProps(kind: unknown, p: Obj): boolean {
 	switch (kind) {
 		case "terminal":
-			return optString(p.termId) && optString(p.cwd);
+			return optString(p.termId) && optString(p.cwd) && optStrings(p.command);
 		case "files":
 		case "editor":
 			return typeof p.path === "string";

@@ -6,6 +6,7 @@
 	import OverviewSheet from "./OverviewSheet.svelte";
 	import RenameWorkspaceDialog from "./RenameWorkspaceDialog.svelte";
 	import { shell } from "./shell.svelte";
+	import SettingsDialog from "./SettingsDialog.svelte";
 	import ShortcutSheet from "./ShortcutSheet.svelte";
 	import TopBar from "./TopBar.svelte";
 	import { viewport } from "./viewport.svelte";
@@ -31,6 +32,7 @@
 {/if}
 <ShortcutSheet />
 <RenameWorkspaceDialog />
+<SettingsDialog />
 
 <style>
 	.app {

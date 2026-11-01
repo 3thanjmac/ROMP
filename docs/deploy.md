@@ -73,7 +73,7 @@ sudo /opt/romp/deploy/install.sh
 
 This installs Bun, pnpm, tsgo, mergiraf, gh and Node, creates the `romp` group and service user, builds the web app, initialises `/srv/romp`, and starts `romp-queue.service`. It also installs `romp-update.timer`, which can keep the VM up to date with GitHub; it is off until you switch it on (see [Updating](#updating)).
 
-Give the queue its credentials once. It pushes to GitHub and runs an agent to resolve merge conflicts:
+Give the queue its credentials once. It pushes to GitHub and runs an agent to resolve merge conflicts. Either run these now, or, once you have added yourself (step 5), open **Settings → Server setup** in the web app: each button opens a ROMP terminal that runs the command and asks for your sudo password.
 
 ```sh
 sudo -iu romp gh auth login

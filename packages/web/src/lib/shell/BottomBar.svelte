@@ -6,7 +6,6 @@
 	import MenuItem from "../ui/MenuItem.svelte";
 	import MenuSection from "../ui/MenuSection.svelte";
 	import { tooltip } from "../ui/tooltip";
-	import { toast } from "../ui/toast.svelte";
 	import { paneStatuses } from "./pane.svelte";
 	import { shell } from "./shell.svelte";
 	import { frameUi } from "./ui.svelte";
@@ -45,7 +44,7 @@
 		<span class="tabular count">{ws.windows.length ? `${index + 1}/${ws.windows.length}` : "0"}</span>
 	</button>
 
-	<button class="item" aria-label="Settings" onclick={() => toast("Settings aren't available yet.")} use:tooltip>
+	<button class="item" aria-label="Settings" onclick={() => (frameUi.settings = true)} use:tooltip>
 		<Icon icon={Icons.Settings} size="lg" />
 	</button>
 

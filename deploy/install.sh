@@ -128,4 +128,5 @@ Next, for each person who will use it:
 The merge queue runs as the romp user. Give it credentials once:
   sudo -iu romp gh auth login        # GitHub pushes/PRs (or an SSH deploy key in /var/lib/romp/.ssh)
   sudo -iu romp omp setup            # sign in to a provider and pick models, so the queue can resolve conflicts with an agent
+Both are also buttons under Settings > Server setup in the web app, for an account with sudo.
 EOF

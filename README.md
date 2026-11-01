@@ -60,7 +60,7 @@ You need a Debian 13 machine or VM, a Tailscale account, and an account with a m
    sudo /opt/romp/deploy/install.sh
    ```
    This installs Bun, pnpm, tsgo, Node, git, mergiraf and gh, and creates the `romp` group and service user. It also builds the web app, puts `romp` and `romp-gateway` on PATH, initialises `/srv/romp`, and starts `romp-queue.service`. Re-run it after every update, or switch on automatic updates with `sudo systemctl enable --now romp-update.timer`: it pulls new commits from GitHub every 10 minutes and re-runs `install.sh` once no agent is mid-turn ([details](docs/deploy.md#updating)).
-3. **Give the merge queue credentials** so it can push and resolve conflicts:
+3. **Give the merge queue credentials** so it can push and resolve conflicts. Run these now, or later from **Settings → Server setup** in the web app (it opens a terminal running the same command; needs sudo):
    ```sh
    sudo -iu romp gh auth login     # or an SSH deploy key in /var/lib/romp/.ssh
    sudo -iu romp omp setup         # sign in to a provider and pick models

@@ -7,6 +7,8 @@ class FrameUi {
 	/** Phone overview sheet. */
 	overview = $state(false);
 	shortcuts = $state(false);
+	/** Settings dialog. */
+	settings = $state(false);
 	/** Workspace id whose rename dialog is open. */
 	renameWorkspace: string | null = $state(null);
 	/** Visible part of the active scroll strip as fractions of its scroll width (top bar minimap bracket). */

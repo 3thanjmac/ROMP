@@ -364,7 +364,12 @@
 		creating = true;
 		createError = null;
 		try {
-			const info = await api.terms.create({ cwd: win.props.cwd, ...size() });
+			const info = await api.terms.create({
+				cwd: win.props.cwd,
+				command: win.props.command,
+				title: win.props.command && win.title ? win.title : undefined,
+				...size(),
+			});
 			exitCode = null;
 			pane.setProps({ termId: info.id, cwd: info.cwd });
 		} catch (err) {

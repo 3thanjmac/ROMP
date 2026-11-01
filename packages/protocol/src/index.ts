@@ -51,6 +51,8 @@ export interface TerminalProps {
 	/** Gateway terminal session id; absent until the session is created. */
 	termId?: string;
 	cwd?: string;
+	/** Command run instead of the login shell, argv form. Restarting the window runs it again. */
+	command?: string[];
 }
 export interface FilesProps {
 	path: string;

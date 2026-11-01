@@ -4,6 +4,7 @@
 	import Avatar from "../ui/Avatar.svelte";
 	import Button from "../ui/Button.svelte";
 	import Chip from "../ui/Chip.svelte";
+	import IconButton from "../ui/IconButton.svelte";
 	import Segmented from "../ui/Segmented.svelte";
 	import { tooltip } from "../ui/tooltip";
 	import { session } from "./session.svelte";
@@ -36,6 +37,7 @@
 		<Button size="sm" icon={Icons.Add} onclick={() => (frameUi.palette = true)}>
 			New window <kbd>Alt O</kbd>
 		</Button>
+		<IconButton label="Settings" icon={Icons.Settings} size="bar" onclick={() => (frameUi.settings = true)} />
 		{#if session.me}
 			{@const me = session.me}
 			<span class="me" role="img" aria-label="{me.displayName} · {me.user}@{me.host}" use:tooltip>
