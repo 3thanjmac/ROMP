@@ -94,7 +94,7 @@ sudo /opt/romp/deploy/add-user.sh bob bob@example.com 7681 8443
 The arguments, in order:
 
 1. The Linux account name.
-2. The person's Tailscale login. The gateway rejects requests from any other login, and the match must be exact. Once the person's phone or laptop has joined the tailnet, `tailscale status` on the VM shows the owner login next to each device, for example `alice@github` or an email address. The admin console lists it under Users too.
+2. The person's Tailscale login. The gateway rejects requests from any other login, and the match must be exact. Once the person's phone or laptop has joined the tailnet, `tailscale status` on the VM shows the owner login next to each device, for example `alice@github` or an email address. The admin console lists it under Users too. Pass `-` if they don't have one yet: Tailscale requests are then all refused, and they can only sign in over the LAN with a password (section 9). Once they have a login, run `add-user.sh` again with it and the same other arguments; it adds the login to their existing gateway config and restarts the gateway.
 3. The gateway port. The gateway listens on it inside the VM only. Give each person a different one.
 4. The HTTPS port the person's browser connects to. Tailscale serves HTTPS only on 443, 8443 and 10000, so one VM fits three people.
 
@@ -289,12 +289,13 @@ Don't write `~/.bun/bin/omp` there. Your own shell expands `~` to your home fold
 | Message | Cause | Fix |
 |---|---|---|
 | `No Tailscale identity: open the gateway through tailscale serve` | The page was opened on the gateway port directly, such as `127.0.0.1:7680` | Use the `https://...ts.net` address from `tailscale serve status` |
-| `<login> is not allowed on this gateway` | The login given to `add-user.sh` doesn't match the one Tailscale reports | Fix `allow_logins` in that user's `~/.config/romp/gateway.toml`, then run `systemctl --user restart romp-gateway` as them |
+| `<login> is not allowed on this gateway` | The login given to `add-user.sh` doesn't match the one Tailscale reports | Run `add-user.sh` again with the right login (it adds it), or fix `allow_logins` in that user's `~/.config/romp/gateway.toml` and run `systemctl --user restart romp-gateway` as them |
+| `No Tailscale login is allowed on this gateway yet` | The person was added with `-` as their login | Run `add-user.sh` again with their Tailscale login |
 | The page never loads | The device isn't on the tailnet, or (on the LAN) the DNS record is missing or bypassed | Switch on the VPN in the Tailscale app, or check section 9 |
 | `Sign-in isn't enabled on this gateway` (LAN) | That person has not set a LAN password | Run `romp-gateway passwd` as them |
 | `Too many attempts. Try again in N s.` (LAN) | Five or more wrong passwords in a row | Wait, then sign in; over Tailscale there is no lockout |
 
-Re-running `add-user.sh` doesn't fix a wrong login, because it keeps an existing `gateway.toml`.
+Re-running `add-user.sh` adds a missing login but never removes one: take a wrong login out of `allow_logins` by hand.
 
 ### `Permission denied` on `/srv/romp/hub/.tmp-...` when adding a repo
 

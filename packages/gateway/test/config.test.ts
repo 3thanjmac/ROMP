@@ -34,8 +34,9 @@ describe("resolveConfig", () => {
 		expect(() => resolveConfig({ dev: "yes" }, ctx)).toThrow(ConfigError);
 		expect(() => resolveConfig({ dev: true, roots: "~" }, ctx)).toThrow(ConfigError);
 	});
-	test("requires an allowlist unless dev", () => {
+	test("requires an allowlist unless dev, which may be empty", () => {
 		expect(() => resolveConfig({}, ctx)).toThrow("allow_logins");
+		expect(resolveConfig({ allow_logins: [] }, ctx).allowLogins).toEqual([]);
 		expect(resolveConfig({ dev: true }, ctx).allowLogins).toEqual([]);
 	});
 	test("only loopback listen addresses are accepted, in dev and otherwise", () => {

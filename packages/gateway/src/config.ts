@@ -11,7 +11,10 @@ export interface ListenAddress {
 
 export interface GatewayConfig {
 	listen: ListenAddress;
-	/** Lowercased Tailscale logins allowed to use this gateway. */
+	/**
+	 * Lowercased Tailscale logins allowed to use this gateway. Empty when the person has no login yet: Tailscale
+	 * requests are all refused, and only LAN password sign-in works.
+	 */
 	allowLogins: string[];
 	/** Disables authentication. Only accepted on a loopback listen address. */
 	dev: boolean;
@@ -88,10 +91,13 @@ export function resolveConfig(raw: Record<string, unknown>, ctx: ResolveContext)
 				: `"listen" must be a loopback address (Tailscale identity headers are only trustworthy behind \`tailscale serve\`), got "${listen.hostname}"`,
 		);
 	}
-	const allowLogins = (optStringArray(raw, "allow_logins") ?? []).map((login) => login.toLowerCase());
-	if (!dev && allowLogins.length === 0) {
-		throw new ConfigError(`"allow_logins" must list at least one Tailscale login (or set "dev = true" for local development)`);
+	const rawLogins = optStringArray(raw, "allow_logins");
+	if (!dev && rawLogins === undefined) {
+		throw new ConfigError(
+			`"allow_logins" must list the Tailscale logins allowed to use this gateway, or be [] for none yet (or set "dev = true" for local development)`,
+		);
 	}
+	const allowLogins = (rawLogins ?? []).map((login) => login.toLowerCase());
 	const roots = resolveRoots(optStringArray(raw, "roots") ?? ["~"], ctx.home);
 	const lanProxyUser = optString(raw, "lan_proxy_user");
 	let lanProxyUid: number | null = null;

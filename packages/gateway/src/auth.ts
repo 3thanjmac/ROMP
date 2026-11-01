@@ -51,7 +51,13 @@ export class Auth {
 		}
 		const login = req.headers.get("tailscale-user-login")?.trim();
 		if (!login) throw new HttpError(401, "unauthorized", "No Tailscale identity: open the gateway through tailscale serve");
-		if (!this.cfg.allowLogins.includes(login.toLowerCase())) throw forbidden(`${login} is not allowed on this gateway`);
+		if (!this.cfg.allowLogins.includes(login.toLowerCase())) {
+			throw forbidden(
+				this.cfg.allowLogins.length === 0
+					? `No Tailscale login is allowed on this gateway yet; an admin adds ${login} by running add-user.sh again with it`
+					: `${login} is not allowed on this gateway`,
+			);
+		}
 		const name = req.headers.get("tailscale-user-name")?.trim();
 		return {
 			lan: false,

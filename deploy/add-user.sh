@@ -4,14 +4,17 @@
 # Example (you):        add-user.sh you    you@github    7680 443
 # Example (a friend):   add-user.sh alice  alice@github  7681 8443
 # Tailscale Serve only offers HTTPS on ports 443, 8443 and 10000.
+# A login of "-" sets the person up with no Tailscale login yet (LAN password sign-in only); run the
+# script again with their login once they have one, and it is added to their existing gateway config.
 set -euo pipefail
 
 ROMP_SRC="${ROMP_SRC:-/opt/romp}"
 
 [[ $EUID -eq 0 ]] || { echo "add-user.sh must run as root" >&2; exit 1; }
-[[ $# -eq 4 ]] || { sed -n '2,6p' "$0" >&2; exit 1; }
+[[ $# -eq 4 ]] || { sed -n '2,8p' "$0" >&2; exit 1; }
 user="$1" login="$2" port="$3" https_port="$4"
 case "$https_port" in 443 | 8443 | 10000) ;; *) echo "https-port must be 443, 8443 or 10000" >&2; exit 1 ;; esac
+[[ $login =~ ^[^[:space:]\"\\]+$ ]] || { echo "tailscale-login must not contain spaces, quotes or backslashes" >&2; exit 1; }
 
 step() { printf '\n==> %s\n' "$*"; }
 as_user() { sudo -iu "$user" bash -lc "$1"; }
@@ -52,11 +55,12 @@ as_user 'romp omp-defaults sync'
 
 step "Gateway config"
 config="$home/.config/romp/gateway.toml"
+if [[ "$login" == - ]]; then logins=""; else logins="\"$login\""; fi
 if [[ ! -f "$config" ]]; then
 	install -d -o "$user" -g "$user" "$home/.config/romp"
 	cat >"$config" <<EOF
 listen = "127.0.0.1:$port"
-allow_logins = ["$login"]
+allow_logins = [$logins]
 roots = ["~"]
 shell = "/bin/bash"
 omp = "$home/.bun/bin/omp"
@@ -65,6 +69,18 @@ EOF
 	chown "$user:$user" "$config"
 else
 	echo "keeping existing $config"
+	current="$(grep -E '^allow_logins[[:space:]]*=' "$config" || true)"
+	if [[ "$login" == - || "${current,,}" == *"\"${login,,}\""* ]]; then
+		:
+	elif [[ $current =~ ^allow_logins[[:space:]]*=[[:space:]]*\[[[:space:]]*(.*[^[:space:],])?[[:space:],]*\][[:space:]]*$ ]]; then
+		listed="${BASH_REMATCH[1]}"
+		awk -v line="allow_logins = [${listed:+$listed, }$logins]" '/^allow_logins[[:space:]]*=/ { $0 = line } 1' "$config" >"$config.new"
+		chown "$user:$user" "$config.new"
+		mv "$config.new" "$config"
+		echo "added $login to allow_logins"
+	else
+		echo "could not add $login to allow_logins in $config; add it by hand" >&2
+	fi
 fi
 
 step "Gateway service"
@@ -98,4 +114,8 @@ $user is set up. Remaining manual steps:
 EOF
 if [[ -f /etc/romp/lan.env ]]; then
 	echo "  3. Set the password for signing in on the LAN: sudo -iu $user romp-gateway passwd"
+fi
+if [[ "$login" == - ]]; then
+	echo "No Tailscale login is allowed yet. Once $user has one, run: $0 $user <tailscale-login> $port $https_port"
+	[[ -f /etc/romp/lan.env ]] || echo "LAN access is off (sudo romp-lan enable), so nobody can open this gateway until then."
 fi
