@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import os from "node:os";
+import type { GitIdentity } from "@romp/protocol";
 import type { RompEnv } from "./env.ts";
 import { RompError } from "./errors.ts";
 
@@ -245,6 +246,20 @@ export async function identityEnv(env: RompEnv, cwd: string): Promise<Record<str
 		GIT_COMMITTER_NAME: name,
 		GIT_COMMITTER_EMAIL: email,
 	};
+}
+
+/** `env.user`'s global git identity (`git config --global`); empty strings when unset. */
+export async function readGitIdentity(env: RompEnv): Promise<GitIdentity> {
+	const get = async (key: string) =>
+		(await git(env, env.home, ["config", "--global", key], { allowFail: true })).stdout.trim();
+	return { name: await get("user.name"), email: await get("user.email") };
+}
+
+/** Set the given fields of `env.user`'s global git identity. */
+export async function writeGitIdentity(env: RompEnv, update: Partial<GitIdentity>): Promise<GitIdentity> {
+	if (update.name !== undefined) await git(env, env.home, ["config", "--global", "user.name", update.name]);
+	if (update.email !== undefined) await git(env, env.home, ["config", "--global", "user.email", update.email]);
+	return readGitIdentity(env);
 }
 
 /** `-c` arguments that let git touch a group-shared repository owned by another user. */

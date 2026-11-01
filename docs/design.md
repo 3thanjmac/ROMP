@@ -37,7 +37,7 @@ One list of items feeds three surfaces: new terminal, agent, files, browser, tas
 - **Phone launcher**: a bottom sheet with a grid of window kinds.
 - **Phone overview**: a sheet with workspace chips, the current workspace's windows, and running sessions that no window shows (minimized). Tap focuses or attaches, drag reorders, swipe left closes (with Undo). Sheets close by dragging down anywhere on them.
 - **Desktop command palette** (`Alt O`): fuzzy search over windows, new windows, running sessions, tasks and commands.
-- **Settings** is a dialog on every screen size, opened from the bottom bar (phone), the top bar or the command palette. Its one-time server setup actions close the dialog and open a terminal window running the displayed command (`sudo -iu romp gh auth login`, `sudo -iu romp omp setup`); the window's Restart runs it again.
+- **Settings** is a dialog on every screen size, opened from the bottom bar (phone), the top bar or the command palette. Everything in it applies to the signed-in user's own account and needs no sudo: the git name and email autosave when a field changes, and the GitHub and OMP sign-ins close the dialog and open a terminal window running the displayed command (`gh auth login`, `omp setup`); the window's Restart runs it again. Credentials for the `romp` service user that runs the merge queue are set up only from a shell on the VM.
 
 ## Keyboard shortcuts
 

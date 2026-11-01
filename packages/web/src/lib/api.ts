@@ -9,6 +9,7 @@ import type {
 	FsOpResult,
 	FsWriteRequest,
 	FsWriteResult,
+	GitIdentity,
 	ListeningPort,
 	LoginRequest,
 	Me,
@@ -110,6 +111,10 @@ const q = encodeURIComponent;
 
 export const api = {
 	me: () => request<Me>("GET", "/api/me"),
+	gitIdentity: {
+		get: () => request<GitIdentity>("GET", "/api/git-identity"),
+		set: (update: Partial<GitIdentity>) => request<GitIdentity>("PUT", "/api/git-identity", update),
+	},
 	/** LAN sign-in; the gateway answers with the session cookie. */
 	login: (req: LoginRequest) => request<undefined>("POST", "/api/login", req),
 

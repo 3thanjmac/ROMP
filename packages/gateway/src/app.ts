@@ -3,12 +3,14 @@ import {
 	createTask,
 	listRepos,
 	listTasks,
+	readGitIdentity,
 	removeTask,
 	type RompEnv,
 	shipTask,
 	updateRepoSettings,
+	writeGitIdentity,
 } from "@romp/core";
-import type { AgentClientMsg, ListeningPort, Me, TaskCreated, TermClientMsg } from "@romp/protocol";
+import type { AgentClientMsg, GitIdentity, ListeningPort, Me, TaskCreated, TermClientMsg } from "@romp/protocol";
 import type { Server, WebSocketHandler } from "bun";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
@@ -232,6 +234,21 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 			roots: [...roots.dirs],
 		} satisfies Me),
 	);
+
+	// ── Account ──
+	router.on("GET", "/api/git-identity", async () => json(await readGitIdentity(romp)));
+	router.on("PUT", "/api/git-identity", async ({ req }) => {
+		const body = await readJson(req, SMALL_BODY);
+		const update: Partial<GitIdentity> = {};
+		for (const key of ["name", "email"] as const) {
+			const value = body[key];
+			if (value === undefined) continue;
+			if (typeof value !== "string" || !value.trim()) throw badRequest(`"${key}" must be a non-empty string`);
+			if (/[\r\n]/.test(value)) throw badRequest(`"${key}" must be a single line`);
+			update[key] = value.trim();
+		}
+		return json(await writeGitIdentity(romp, update));
+	});
 
 	// ── Terminals ──
 	router.on("GET", "/api/terms", () => json(terms.list()));

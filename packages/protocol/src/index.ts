@@ -43,6 +43,16 @@ export interface Me {
 	roots: string[];
 }
 
+/**
+ * `GET /api/git-identity`: the user's global git `user.name` and `user.email`, which author their commits;
+ * empty strings when unset. `PUT /api/git-identity` takes a `Partial<GitIdentity>` of non-empty values and
+ * answers with the result.
+ */
+export interface GitIdentity {
+	name: string;
+	email: string;
+}
+
 // ───────────────────────────── Shell layout ─────────────────────────────
 
 export type WindowKind = "terminal" | "files" | "editor" | "agent" | "browser" | "tasks";

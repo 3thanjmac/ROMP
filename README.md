@@ -60,7 +60,7 @@ You need a Debian 13 machine or VM, a Tailscale account, and an account with a m
    sudo /opt/romp/deploy/install.sh
    ```
    This installs Bun, pnpm, tsgo, Node, git, mergiraf and gh, and creates the `romp` group and service user. It also builds the web app, puts `romp` and `romp-gateway` on PATH, initialises `/srv/romp`, and starts `romp-queue.service`. Re-run it after every update, or switch on automatic updates with `sudo systemctl enable --now romp-update.timer`: it pulls new commits from GitHub every 10 minutes and re-runs `install.sh` once no agent is mid-turn ([details](docs/deploy.md#updating)).
-3. **Give the merge queue credentials** so it can push and resolve conflicts. Run these now, or later from **Settings → Server setup** in the web app (it opens a terminal running the same command; needs sudo):
+3. **Give the merge queue credentials** so it can push and resolve conflicts. They belong to the `romp` service user, which only the queue runs as, so nobody else's account sees them. Run these once on the VM:
    ```sh
    sudo -iu romp gh auth login     # or an SSH deploy key in /var/lib/romp/.ssh
    sudo -iu romp omp setup         # sign in to a provider and pick models
@@ -71,7 +71,7 @@ You need a Debian 13 machine or VM, a Tailscale account, and an account with a m
    sudo /opt/romp/deploy/add-user.sh you     you@github       7680          443
    sudo /opt/romp/deploy/add-user.sh alice   alice@github     7681          8443
    ```
-   This creates the account, installs OMP, the ROMP extension and the shared OMP settings from `deploy/omp-defaults/`, writes `~/.config/romp/gateway.toml`, enables the `romp-gateway` user service, and runs `tailscale serve` (Tailscale serves HTTPS only on 443, 8443 and 10000). Someone without a Tailscale login yet gets `-` as their login and signs in over the LAN only; re-run the command with their login once they have one. The first ROMP terminal each person opens offers OMP's setup wizard to sign in to their own providers and pick models (`omp setup` reruns it). Each person also sets `git config --global user.name` / `user.email`. Shared settings, opting out (`romp omp-defaults off`) and what is never shared are described in [docs/deploy.md](docs/deploy.md#7-shared-omp-settings).
+   This creates the account, installs OMP, the ROMP extension and the shared OMP settings from `deploy/omp-defaults/`, writes `~/.config/romp/gateway.toml`, enables the `romp-gateway` user service, and runs `tailscale serve` (Tailscale serves HTTPS only on 443, 8443 and 10000). Someone without a Tailscale login yet gets `-` as their login and signs in over the LAN only; re-run the command with their login once they have one. Each person then sets up their own account from **Settings** in the web app, without sudo: their git name and email, `gh auth login` (needed to add private repos) and `omp setup` (their own AI providers and models). The first ROMP terminal each person opens also offers OMP's setup wizard. Shared settings, opting out (`romp omp-defaults off`) and what is never shared are described in [docs/deploy.md](docs/deploy.md#7-shared-omp-settings).
 5. **Open** `https://<vm>.<tailnet>.ts.net/` (port 443) or `https://<vm>.<tailnet>.ts.net:8443/`, and use "Add to Home Screen" on a phone.
 6. **Add a repository** from the Tasks window (**Add repo**), or on the VM:
    ```sh

@@ -125,8 +125,8 @@ cat <<EOF
 ROMP installed.
 Next, for each person who will use it:
   sudo $ROMP_SRC/deploy/add-user.sh <linux-user> <tailscale-login> <gateway-port> <https-port>
-The merge queue runs as the romp user. Give it credentials once:
+The merge queue runs as the romp user. Give it credentials once (they are the queue's only; each person
+signs in to their own account from Settings in the web app):
   sudo -iu romp gh auth login        # GitHub pushes/PRs (or an SSH deploy key in /var/lib/romp/.ssh)
   sudo -iu romp omp setup            # sign in to a provider and pick models, so the queue can resolve conflicts with an agent
-Both are also buttons under Settings > Server setup in the web app, for an account with sudo.
 EOF

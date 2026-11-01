@@ -106,14 +106,16 @@ fi
 
 cat <<EOF
 
-$user is set up. Remaining manual steps:
-  1. Pick AI providers and models: the first ROMP terminal $user opens offers OMP's setup wizard
-     (or now: sudo -iu $user omp setup). Model choices are never shared between users.
-  2. Set a git identity for commits:    sudo -iu $user git config --global user.name "Name"
-                                        sudo -iu $user git config --global user.email "you@example.com"
+$user is set up. $user then sets up their own account from Settings in the web app (no sudo needed):
+git name and email, GitHub sign-in (gh auth login) and AI providers (omp setup). None of it is shared
+with other users. To do it for them from here instead:
+  1. sudo -iu $user git config --global user.name "Name"
+     sudo -iu $user git config --global user.email "you@example.com"
+  2. sudo -iu $user omp setup
+  3. sudo -iu $user gh auth login     (only needed to add private repos)
 EOF
 if [[ -f /etc/romp/lan.env ]]; then
-	echo "  3. Set the password for signing in on the LAN: sudo -iu $user romp-gateway passwd"
+	echo "Set the password $user signs in with on the LAN: sudo -iu $user romp-gateway passwd"
 fi
 if [[ "$login" == - ]]; then
 	echo "No Tailscale login is allowed yet. Once $user has one, run: $0 $user <tailscale-login> $port $https_port"

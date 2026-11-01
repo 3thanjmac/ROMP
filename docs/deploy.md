@@ -73,7 +73,7 @@ sudo /opt/romp/deploy/install.sh
 
 This installs Bun, pnpm, tsgo, mergiraf, gh and Node, creates the `romp` group and service user, builds the web app, initialises `/srv/romp`, and starts `romp-queue.service`. It also installs `romp-update.timer`, which can keep the VM up to date with GitHub; it is off until you switch it on (see [Updating](#updating)).
 
-Give the queue its credentials once. It pushes to GitHub and runs an agent to resolve merge conflicts. Either run these now, or, once you have added yourself (step 5), open **Settings → Server setup** in the web app: each button opens a ROMP terminal that runs the command and asks for your sudo password.
+Give the queue its credentials once. It pushes to GitHub and runs an agent to resolve merge conflicts. These belong to the `romp` service user, which only the queue runs as; they are not shared with anyone's account, and each person signs in separately (step 5).
 
 ```sh
 sudo -iu romp gh auth login
@@ -100,21 +100,20 @@ The arguments, in order:
 
 If `tailscale serve` says HTTPS is not enabled for your tailnet, open the link it prints, turn HTTPS on, and run `add-user.sh` again. Running it twice is safe.
 
-Each person sets a git identity for their commits. From their own account:
+Each person then sets up their own account from **Settings** in the web app. None of it needs sudo, and none of it is shared with other people:
 
-```sh
-git config --global user.name "Alice Example"
-git config --global user.email "alice@example.com"
-```
+- **Git identity**: the name and email on their commits (`git config --global user.name` / `user.email`).
+- **GitHub**: runs `gh auth login` in a terminal. Only needed to add private repos (section 7).
+- **AI providers**: runs `omp setup` in a terminal to sign in to providers and pick models.
 
-An admin can do the same by putting `sudo -iu alice` in front of each command.
+An admin can do the same from a shell by putting `sudo -iu alice` in front of each command.
 
 ## 6. Open ROMP on a phone
 
 1. Install the Tailscale app on the phone, sign in with the same account as the login passed to `add-user.sh`, and switch the VPN on. ROMP is only reachable from devices in the tailnet.
 2. Get the address on the VM with `tailscale serve status`. It prints one URL per person, such as `https://debian.tail1234.ts.net/` for port 443 and `https://debian.tail1234.ts.net:8443/` for 8443. Open it in the phone's browser. The first load can take a few seconds while Tailscale fetches the HTTPS certificate.
 3. Install it as an app. In Safari, tap Share, then Add to Home Screen. In Chrome on Android, open the ⋮ menu and choose Add to Home screen (or Install app). iOS reads the app's status-bar settings only when it is added, so after a ROMP update that changes them, remove the Home Screen icon and add it again.
-4. The first terminal opened in ROMP offers OMP's setup wizard, which signs in to AI providers (Anthropic, OpenRouter, ...) and picks models. `omp setup` reruns it at any time.
+4. The first terminal opened in ROMP offers OMP's setup wizard, which signs in to AI providers (Anthropic, OpenRouter, ...) and picks models. **Settings → Set up OMP**, or `omp setup` in a terminal, reruns it at any time.
 
 A laptop works the same way: join the tailnet and open the same URL in any browser.
 
@@ -127,7 +126,7 @@ romp repo add https://github.com/<owner>/project.git
 romp repo set project land=pr        # optional: land through PRs with auto-merge instead of pushing to main
 ```
 
-Whoever adds a repo makes the first clone from GitHub as their own Linux user, so for a private repo they need their own `gh auth login` first (HTTPS, as in step 4). After that, people work through the copy on the VM and only the queue talks to GitHub.
+Whoever adds a repo makes the first clone from GitHub as their own Linux user, so for a private repo they need their own GitHub sign-in first: **Settings → Set up GitHub** in the web app, or `gh auth login` in a terminal (HTTPS, as in step 4). After that, people work through the copy on the VM and only the queue talks to GitHub.
 
 Commit a `.romp.toml` to the project to tell ROMP how to install dependencies in a new worktree and how to test before landing:
 
