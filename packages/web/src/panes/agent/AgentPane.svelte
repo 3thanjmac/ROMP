@@ -6,6 +6,7 @@
 	import { Icons } from "../../lib/icons";
 	import type { PaneContext } from "../../lib/shell/pane.svelte";
 	import { session as me } from "../../lib/shell/session.svelte";
+	import { shell } from "../../lib/shell/shell.svelte";
 	import type { WindowOf } from "../../lib/shell/types";
 	import { viewport } from "../../lib/shell/viewport.svelte";
 	import AsyncButton from "../../lib/ui/AsyncButton.svelte";
@@ -79,6 +80,11 @@
 		} catch (err) {
 			toast({ message: errorMessage(err), tone: "danger" });
 		}
+	}
+
+	/** Most start failures are a missing provider or model: OMP's setup wizard, in a terminal, fixes those. */
+	function setUpOmp(): void {
+		shell.open({ kind: "terminal", title: "OMP setup", props: { cwd, command: ["omp", "setup"] } }, { keyboard: true });
 	}
 
 	$effect(() => {
@@ -157,6 +163,15 @@
 			<EmptyState icon={Icons.Agent} title="Couldn't start an agent" text={createError}>
 				{#snippet actions()}
 					<AsyncButton action={autoStart} pendingLabel="Starting…">Retry</AsyncButton>
+				{/snippet}
+			</EmptyState>
+		</div>
+	{:else if conn === "failed"}
+		<div class="center">
+			<EmptyState icon={Icons.Agent} title="The agent couldn't start" text={view?.startError ?? "OMP exited before it was ready."}>
+				{#snippet actions()}
+					<Button variant="secondary" icon={Icons.Terminal} onclick={setUpOmp}>Set up OMP</Button>
+					<Button onclick={() => agent?.retryNow()}>Retry</Button>
 				{/snippet}
 			</EmptyState>
 		</div>

@@ -13,16 +13,18 @@
 					? "Reconnecting…"
 					: state === "offline"
 						? "Offline"
-						: exitCode === null
-							? "Exited"
-							: `Exited (code ${exitCode})`,
+						: state === "failed"
+							? "Couldn't start"
+							: exitCode === null
+								? "Exited"
+								: `Exited (code ${exitCode})`,
 	);
 </script>
 
 <span
 	class="dot"
 	data-state={state}
-	data-failed={state === "exited" && exitCode !== null && exitCode !== 0 ? "" : undefined}
+	data-failed={state === "failed" || (state === "exited" && exitCode !== null && exitCode !== 0) ? "" : undefined}
 	role="img"
 	aria-label={label}
 	use:tooltip

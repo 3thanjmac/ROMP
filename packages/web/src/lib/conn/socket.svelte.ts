@@ -1,12 +1,13 @@
 /**
  * Reconnecting JSON WebSocket with the shared connection states every live pane shows:
  * connecting (first attempt) → live → reconnecting (backoff 0.5, 1, 2, 4, 8s, then every 10s) | offline
- * (navigator.onLine is false) | exited (the session ended or no longer exists; no more reconnects).
+ * (navigator.onLine is false) | exited (the session ended or no longer exists; no more reconnects) | failed (the
+ * server could not start the session; no more reconnects until `retryNow`).
  * Reconnects immediately when the tab becomes visible again and when the browser comes back online.
  */
 import { net } from "./net.svelte";
 
-export type ConnState = "connecting" | "live" | "reconnecting" | "offline" | "exited";
+export type ConnState = "connecting" | "live" | "reconnecting" | "offline" | "exited" | "failed";
 
 export interface SocketOptions<In> {
 	/** Path on this origin, e.g. `/ws/term/<id>`. */
@@ -25,10 +26,15 @@ const BACKOFF_MS = [500, 1000, 2000, 4000, 8000];
 const MAX_BACKOFF_MS = 10_000;
 /** Server close codes meaning "this session does not exist (any more)": stop reconnecting. */
 const GONE_CODES = new Set([4404, 4410]);
+/** Server close code meaning "the session could not start": retrying needs the user to fix something first. */
+const FAILED_CODE = 4503;
 
 export class Socket<In, Out> {
 	state: ConnState = $state("connecting");
-	/** Reconnect attempts since the last successful connection. */
+	/**
+	 * Reconnect attempts since a connection last delivered a message. An `open` alone does not count: a server that
+	 * accepts and then immediately closes would otherwise be retried at the shortest backoff forever.
+	 */
 	attempt = $state(0);
 
 	#opts: SocketOptions<In>;
@@ -82,16 +88,21 @@ export class Socket<In, Out> {
 		url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
 		const ws = new WebSocket(url);
 		this.#ws = ws;
-		this.state = this.attempt === 0 && this.state === "connecting" ? "connecting" : "reconnecting";
+		// A retry after `failed` is a fresh start, not the recovery of a dropped connection.
+		this.state = this.attempt === 0 && (this.state === "connecting" || this.state === "failed") ? "connecting" : "reconnecting";
 		ws.onopen = () => {
 			if (ws !== this.#ws) return;
-			this.attempt = 0;
 			this.state = "live";
 			net.reportUp();
 			this.#opts.onOpen?.();
 		};
+		let delivered = false;
 		ws.onmessage = (ev) => {
 			if (ws !== this.#ws || typeof ev.data !== "string") return;
+			if (!delivered) {
+				delivered = true;
+				this.attempt = 0;
+			}
 			let msg: In;
 			try {
 				msg = JSON.parse(ev.data) as In;
@@ -117,6 +128,10 @@ export class Socket<In, Out> {
 		if (this.#disposed || this.state === "exited") return;
 		if (GONE_CODES.has(code)) {
 			this.state = "exited";
+			return;
+		}
+		if (code === FAILED_CODE) {
+			this.state = "failed";
 			return;
 		}
 		if (!navigator.onLine) {

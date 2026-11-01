@@ -28,6 +28,8 @@ export interface AgentView {
 	activity: Activity | null;
 	exited: boolean;
 	exitCode: number | null;
+	/** Why the gateway could not start OMP (its socket then closes as `failed`); cleared by the next snapshot. */
+	startError: string | null;
 }
 
 export type Item = UserItem | AssistantItem | NoticeItem | ShellItem;

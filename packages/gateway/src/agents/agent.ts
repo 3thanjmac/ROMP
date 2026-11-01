@@ -46,6 +46,11 @@ const READY_TIMEOUT_MS = 60_000;
 const COMMAND_TIMEOUT_MS = 60_000;
 const STOP_GRACE_MS = 5_000;
 const MESSAGE_PAGE = 256;
+/** Close code for "OMP could not start": the client stops reconnecting until the user retries. */
+const START_FAILED = 4503;
+const STDERR_TAIL_CHARS = 4096;
+/** How long an early exit waits for OMP's stderr to drain before reporting why it failed. */
+const STDERR_DRAIN_MS = 1_000;
 /** `extension_ui_request` methods that wait for an `extension_ui_response`. */
 const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor", "ask"]);
 /** Commands after which the session file may have changed. */
@@ -109,15 +114,17 @@ export class Agent {
 		if (this.closed) return Promise.reject(new Error("Agent was removed"));
 		if (!this.starting) {
 			const respawn = this.proc !== null;
-			this.starting = this.start().then(
+			const starting = this.start().then(
 				() => {
 					if (respawn) for (const ws of [...this.clients]) this.resnapshot(ws);
 				},
 				(err: unknown) => {
-					this.starting = null;
+					// A failed start reports late (it waits for stderr); a newer start may own `starting` by then.
+					if (this.starting === starting) this.starting = null;
 					throw err;
 				},
 			);
+			this.starting = starting;
 		}
 		return this.starting;
 	}
@@ -183,8 +190,8 @@ export class Agent {
 		this.pendingUi.clear();
 		this.readyFrame = Promise.withResolvers<RpcFrame>();
 		void this.readStdout(proc);
-		void this.readStderr(proc);
-		void proc.exited.then((code) => this.onExit(proc, code));
+		const stderr = this.readStderr(proc);
+		void proc.exited.then((code) => this.onExit(proc, code, stderr));
 
 		try {
 			const ready = await withTimeout(this.readyFrame.promise, READY_TIMEOUT_MS, "omp did not become ready");
@@ -228,22 +235,33 @@ export class Agent {
 		}
 	}
 
-	private async readStderr(proc: OmpProcess): Promise<void> {
+	/** Logs OMP's stderr and resolves with its tail once the stream closes. */
+	private async readStderr(proc: OmpProcess): Promise<string> {
 		const decoder = new TextDecoder();
+		let tail = "";
 		for await (const bytes of proc.stderr) {
-			const text = decoder.decode(bytes, { stream: true }).trimEnd();
-			if (text) console.error(`agent ${this.id} stderr: ${text.slice(0, 4096)}`);
+			const text = decoder.decode(bytes, { stream: true });
+			tail = (tail + text).slice(-STDERR_TAIL_CHARS);
+			const line = text.trimEnd();
+			if (line) console.error(`agent ${this.id} stderr: ${line.slice(0, 4096)}`);
 		}
+		return tail;
 	}
 
-	private onExit(proc: OmpProcess, code: number | null): void {
+	private onExit(proc: OmpProcess, code: number | null, stderr: Promise<string>): void {
 		if (this.proc !== proc) return;
 		this.starting = null;
 		this.exited = true;
 		this.exitCode = code;
 		this.setBusy(false);
 		this.pendingUi.clear();
-		this.readyFrame?.reject(new Error(`omp exited with code ${code}`));
+		const ready = this.readyFrame;
+		if (ready) {
+			// An exit before `ready` is a failed start: OMP explains why on stderr, which may still be draining.
+			void withTimeout(stderr, STDERR_DRAIN_MS, "")
+				.catch(() => "")
+				.then((tail) => ready.reject(new Error(exitReason(code, tail))));
+		}
 		for (const [id, waiter] of this.waiters) {
 			this.waiters.delete(id);
 			if (waiter.kind === "internal") waiter.reject(new Error(`omp exited with code ${code}`));
@@ -387,6 +405,15 @@ export class Agent {
 		let state: unknown;
 		try {
 			await this.ensureRunning();
+		} catch (err) {
+			if (!this.joining.delete(ws)) return;
+			const message = errorMessage(err);
+			console.warn(`agent ${this.id}: could not start: ${message}`);
+			sendJson(ws, { t: "error", message } satisfies AgentServerMsg);
+			ws.close(START_FAILED, "agent could not start");
+			return;
+		}
+		try {
 			messages = await this.transcript(startBuffering);
 			state = await this.command({ type: "get_state" });
 		} catch (err) {
@@ -441,4 +468,11 @@ export class Agent {
 		if (this.closed) return;
 		this.broadcast({ t: "info", info: this.info() });
 	}
+}
+
+/** OMP's own explanation for an early exit: the first paragraph it printed to stderr. */
+function exitReason(code: number | null, stderr: string): string {
+	const first = stderr.trim().split(/\n\s*\n/)[0]?.trim().replace(/\s+/g, " ");
+	const base = `omp exited with code ${code}`;
+	return first ? `${base}: ${first.slice(0, 500)}` : base;
 }

@@ -247,6 +247,8 @@ export type AgentClientMsg =
  *   frames carry deltas, not the full accumulating message.
  * - `response`: the OMP response to this client's `rpc` message, correlated by `reqId`.
  * - `exit`: the OMP process ended.
+ * - `error`: OMP could not start (`message` is its explanation, e.g. no model configured). Sent right before the
+ *   gateway closes the socket with code 4503; the client should not reconnect until the user retries.
  */
 export type AgentServerMsg =
 	| {
@@ -259,7 +261,8 @@ export type AgentServerMsg =
 	| { t: "frame"; frame: Record<string, unknown> & { type: string } }
 	| { t: "response"; reqId: string; success: boolean; data?: unknown; error?: string }
 	| { t: "info"; info: AgentInfo }
-	| { t: "exit"; code: number | null };
+	| { t: "exit"; code: number | null }
+	| { t: "error"; message: string };
 
 // ───────────────────────────── Repos & tasks (romp git automation) ─────────────────────────────
 

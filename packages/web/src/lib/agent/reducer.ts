@@ -56,6 +56,7 @@ export function emptyView(): AgentView {
 		activity: null,
 		exited: false,
 		exitCode: null,
+		startError: null,
 	};
 }
 
@@ -72,6 +73,8 @@ export function reduce(view: AgentView, input: Input, now: number): Step {
 			return { view: withInfo(view, input.info), effects: NONE };
 		case "exit":
 			return { view: terminate(view, input.code), effects: NONE };
+		case "error":
+			return { view: { ...view, startError: input.message }, effects: NONE };
 		case "sent": {
 			const entry: Outgoing = { reqId: input.reqId, kind: input.kind, text: input.text, acked: false, orphan: false };
 			return { view: { ...view, outbox: [...view.outbox, entry] }, effects: NONE };
@@ -140,6 +143,7 @@ function snapshot(prev: AgentView, msg: Extract<AgentServerMsg, { t: "snapshot" 
 		activity: null,
 		exited: msg.info.exited,
 		exitCode: msg.info.exitCode,
+		startError: null,
 	};
 	return { view, effects };
 }

@@ -9,16 +9,20 @@ import type { Socket } from "../src/ws.ts";
 type Snapshot = Extract<AgentServerMsg, { t: "snapshot" }>;
 type Frame = Extract<AgentServerMsg, { t: "frame" }>["frame"];
 
-/** The two socket methods Agent uses, recording what it was sent and waking waiters on every change. */
+/** The socket methods Agent uses, recording what it was sent and waking waiters on every change. */
 class FakeSocket {
 	readonly messages: AgentServerMsg[] = [];
+	closed: { code: number; reason: string } | null = null;
 	private wake: (() => void)[] = [];
 
 	send(data: string): void {
 		this.messages.push(JSON.parse(data));
 		for (const resolve of this.wake.splice(0)) resolve();
 	}
-	close(): void {}
+	close(code: number, reason: string): void {
+		this.closed = { code, reason };
+		for (const resolve of this.wake.splice(0)) resolve();
+	}
 
 	get socket(): Socket {
 		return this as unknown as Socket; // structural stand-in for Bun's ServerWebSocket
@@ -139,4 +143,24 @@ test("a client rpc after the process exited respawns it and re-snapshots clients
 	expect(a.response("r")).toMatchObject({ success: true });
 	await a.until(() => a.snapshots().length === 2, "fresh snapshot after respawn");
 	expect(agent.info().exited).toBe(false);
+});
+
+test("an omp that exits before ready reports its stderr and closes 4503 instead of a retryable error", async () => {
+	const failing = join(dir, "omp-unconfigured");
+	writeFileSync(
+		failing,
+		`#!/bin/sh\nprintf 'No default model selected. Use /login.\\n\\nSet an API key environment variable.\\n' >&2\nexit 1\n`,
+	);
+	chmodSync(failing, 0o755);
+	const record: AgentRecord = { id: "a4", title: "a4", cwd: dir, createdAt: 1, sessionFile: null };
+	const agent = new Agent(record, null, { omp: failing, persist: () => {}, busyChanged: () => {} }, undefined);
+	agents.push(agent);
+	const a = new FakeSocket();
+	agent.attach(a.socket);
+	await a.until(() => a.closed !== null, "close");
+	expect(a.closed?.code).toBe(4503);
+	expect(a.messages.filter((m) => m.t === "error")).toEqual([
+		{ t: "error", message: "omp exited with code 1: No default model selected. Use /login." },
+	]);
+	expect(a.snapshots()).toEqual([]);
 });
