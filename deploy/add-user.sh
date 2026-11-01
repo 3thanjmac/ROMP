@@ -24,6 +24,15 @@ user_systemctl() {
 step "Linux account $user"
 id "$user" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$user"
 usermod -aG romp "$user"
+# A systemd user manager already running (the account was logged in, or set up earlier) keeps the groups it
+# started with, and so does every gateway it starts: without romp, adding a repo fails writing to /srv/romp/hub.
+uid="$(id -u "$user")"
+romp_gid="$(getent group romp | cut -d: -f3)"
+manager_pid="$(systemctl show -p MainPID --value "user@$uid.service" 2>/dev/null || echo 0)"
+if [[ "$manager_pid" != 0 ]] && ! grep '^Groups:' "/proc/$manager_pid/status" | grep -qw "$romp_gid"; then
+	echo "restarting $user's systemd user manager so its services join the romp group"
+	systemctl restart "user@$uid.service"
+fi
 loginctl enable-linger "$user"
 home="$(getent passwd "$user" | cut -d: -f6)"
 # Lingering starts the user's systemd manager asynchronously; wait for its bus.

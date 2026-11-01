@@ -45,7 +45,7 @@ export interface PaneContext<K extends WindowKind = WindowKind> {
 	onFocusRequest(fn: () => void): () => void;
 	/** Opens a window to the right of this one and focuses it; returns the new window id. */
 	open(spec: NewWindow): string;
-	/** Detaches this window (the session keeps running) with an Undo toast. */
+	/** Closes this window with an Undo toast; a terminal or agent session it shows ends unless undone. */
 	close(): void;
 }
 

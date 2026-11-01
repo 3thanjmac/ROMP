@@ -3,7 +3,7 @@ import type { AgentInfo, TermInfo, WindowKind } from "@romp/protocol";
 import { api } from "../api";
 import { Icons, type IconComponent } from "../icons";
 import { session } from "./session.svelte";
-import { shell, windowCwd } from "./shell.svelte";
+import { sessionKey, sessionOf, shell, windowCwd } from "./shell.svelte";
 
 export type LaunchKind = Exclude<WindowKind, "editor"> | "open-file";
 
@@ -58,21 +58,23 @@ export function launch(kind: LaunchKind, cwd: string, keyboard = false): void {
 
 export type RunningSession = { kind: "terminal"; info: TermInfo } | { kind: "agent"; info: AgentInfo };
 
-/** Live terminal and agent sessions that no window shows. */
+/** Live terminal and agent sessions that no window shows, leaving out those of closed windows about to end. */
 export async function runningSessions(): Promise<RunningSession[]> {
 	const [terms, agents] = await Promise.all([api.terms.list(), api.agents.list()]);
-	const shownTerms = new Set<string>();
-	const shownAgents = new Set<string>();
+	const hidden = new Set(shell.ending);
 	for (const ws of shell.state.workspaces) {
 		for (const w of ws.windows) {
-			if (w.kind === "terminal" && w.props.termId) shownTerms.add(w.props.termId);
-			if (w.kind === "agent" && w.props.agentId) shownAgents.add(w.props.agentId);
+			const s = sessionOf(w);
+			if (s) hidden.add(sessionKey(s));
 		}
 	}
-	return [
-		...terms.filter((t) => !t.exited && !shownTerms.has(t.id)).map((info) => ({ kind: "terminal" as const, info })),
-		...agents.filter((a) => !a.exited && !shownAgents.has(a.id)).map((info) => ({ kind: "agent" as const, info })),
-	].sort((a, b) => b.info.createdAt - a.info.createdAt);
+	const all: RunningSession[] = [
+		...terms.map((info) => ({ kind: "terminal" as const, info })),
+		...agents.map((info) => ({ kind: "agent" as const, info })),
+	];
+	return all
+		.filter((s) => !s.info.exited && !hidden.has(sessionKey({ kind: s.kind, id: s.info.id })))
+		.sort((a, b) => b.info.createdAt - a.info.createdAt);
 }
 
 export function attach(s: RunningSession): void {

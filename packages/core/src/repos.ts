@@ -137,6 +137,22 @@ function requireRoot(env: RompEnv): void {
 		throw new RompError("not_found", `romp root ${env.root} is not initialized (run \`romp init\` as root)`);
 }
 
+/** Adding a repo writes into the shared hub as this user, so the running process needs the romp group. */
+function requireHubWritable(env: RompEnv): void {
+	const hub = path.join(env.root, "hub");
+	try {
+		fs.accessSync(hub, fs.constants.W_OK);
+	} catch {
+		throw new RompError(
+			"forbidden",
+			`${env.user} cannot write to ${hub}. The account must be in the romp group, and the process adding the repo ` +
+				`must have started after it joined: run \`sudo usermod -aG romp ${env.user}\`, then ` +
+				`\`sudo systemctl restart user@${process.getuid?.() ?? "<uid>"}.service\` so the gateway restarts with the ` +
+				`group (for the romp command, sign out and back in).`,
+		);
+	}
+}
+
 function nameFromUrl(url: string): string {
 	const base = url.replace(/[/\\]+$/, "").split(/[/\\:]/).pop() ?? "";
 	return base.replace(/\.git$/, "");
@@ -158,6 +174,7 @@ export const isLocalUrl = (url: string) => url.startsWith("/") || url.startsWith
 /** Create the hub repository (bare, group-shared) from an upstream URL, or empty when `url` is "". */
 export async function addRepo(env: RompEnv, add: RepoAdd): Promise<RepoInfo> {
 	requireRoot(env);
+	requireHubWritable(env);
 	const url = add.url.trim();
 	const name = add.name?.trim() || nameFromUrl(url);
 	if (!name) throw new RompError("bad_request", "A hub-only repo needs a name");

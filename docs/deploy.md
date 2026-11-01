@@ -296,6 +296,16 @@ Don't write `~/.bun/bin/omp` there. Your own shell expands `~` to your home fold
 
 Re-running `add-user.sh` doesn't fix a wrong login, because it keeps an existing `gateway.toml`.
 
+### `Permission denied` on `/srv/romp/hub/.tmp-...` when adding a repo
+
+The repo is cloned by your own gateway, which has to be in the `romp` group to write to `/srv/romp/hub`. `add-user.sh` adds the account to the group, but a process started before that keeps its old groups. The gateway is started by your systemd user manager, which was probably already running because you were logged in. Re-run `add-user.sh` for the account (it restarts the user manager when it lacks the group), or restart it yourself:
+
+```sh
+sudo systemctl restart "user@$(id -u <linux-user>).service"
+```
+
+For `romp repo add` in a terminal, log out and back in first. Cloning a private repo also needs that person's own `gh auth login` (section 7); the `romp` user's login is only used by the merge queue.
+
 ### `refusing to allow an OAuth App to create or update workflow`
 
 The queue tried to push a change to `.github/workflows/`, and its GitHub token lacks the `workflow` scope. Add the scope:

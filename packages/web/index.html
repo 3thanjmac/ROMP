@@ -2,9 +2,13 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
+		<!--
+			maximum-scale=1 stops iOS zooming into a focused input whose text is under 16px; user-scalable=no blocks
+			pinch zoom where it is honoured (Home Screen apps). viewport.svelte.ts blocks it in Safari too.
+		-->
 		<meta
 			name="viewport"
-			content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+			content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
 		/>
 		<meta name="mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />

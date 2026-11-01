@@ -6,6 +6,7 @@
 	import MenuItem from "../ui/MenuItem.svelte";
 	import MenuSection from "../ui/MenuSection.svelte";
 	import { tooltip } from "../ui/tooltip";
+	import { toast } from "../ui/toast.svelte";
 	import { paneStatuses } from "./pane.svelte";
 	import { shell } from "./shell.svelte";
 	import { frameUi } from "./ui.svelte";
@@ -13,9 +14,6 @@
 	const ws = $derived(shell.active);
 	const index = $derived(ws.windows.findIndex((w) => w.id === ws.focusedId));
 	const needsInput = $derived(ws.windows.some((w) => paneStatuses.get(w.id)?.needsInput));
-	const modeLabel = $derived(
-		ws.mode === "scroll" ? "Layout: scroll. Switch to tile" : "Layout: tile. Switch to scroll",
-	);
 </script>
 
 <nav class="bottombar" aria-label="Shell">
@@ -47,8 +45,8 @@
 		<span class="tabular count">{ws.windows.length ? `${index + 1}/${ws.windows.length}` : "0"}</span>
 	</button>
 
-	<button class="item" aria-label={modeLabel} onclick={() => shell.toggleMode()} use:tooltip>
-		<Icon icon={ws.mode === "scroll" ? Icons.ModeScroll : Icons.ModeTile} size="lg" />
+	<button class="item" aria-label="Settings" onclick={() => toast("Settings aren't available yet.")} use:tooltip>
+		<Icon icon={Icons.Settings} size="lg" />
 	</button>
 
 	<button class="launch" aria-label="New window" onclick={() => (frameUi.launcher = true)} use:tooltip>

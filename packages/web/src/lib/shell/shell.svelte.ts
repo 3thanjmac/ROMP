@@ -3,6 +3,7 @@
  * their PaneContext; chrome (bars, palette, overview, shortcuts) calls these actions directly.
  */
 import type { ShellState, TileNode, WindowKind, WindowState, Workspace } from "@romp/protocol";
+import { api, ApiFailure, errorMessage } from "../api";
 import { basename, uid } from "../format";
 import { toast } from "../ui/toast.svelte";
 import {
@@ -35,6 +36,31 @@ export const DEFAULT_WIDTHS: Record<WindowKind, number> = {
 };
 
 const NEW_WORKSPACE_NAME = "untitled";
+
+/** The live session a window shows (terminal or agent), if it has one. */
+export function sessionOf(win: WindowState): { kind: "terminal" | "agent"; id: string } | null {
+	if (win.kind === "terminal" && win.props.termId) return { kind: "terminal", id: win.props.termId };
+	if (win.kind === "agent" && win.props.agentId) return { kind: "agent", id: win.props.agentId };
+	return null;
+}
+
+export const sessionKey = (s: { kind: string; id: string }) => `${s.kind}:${s.id}`;
+
+/** The mode `ws` is laid out in. Phones always scroll; the stored mode is kept for larger screens. */
+export function layoutMode(ws: Workspace): Workspace["mode"] {
+	return viewport.layout === "phone" ? "scroll" : ws.mode;
+}
+
+async function endSession(session: { kind: "terminal" | "agent"; id: string }, title: string): Promise<void> {
+	try {
+		if (session.kind === "terminal") await api.terms.kill(session.id);
+		else await api.agents.kill(session.id);
+	} catch (err) {
+		// Already gone: nothing to end.
+		if (err instanceof ApiFailure && err.status === 404) return;
+		toast({ message: `Couldn't end ${title}: ${errorMessage(err)}`, tone: "danger" });
+	}
+}
 
 function newWorkspace(name: string): Workspace {
 	return {
@@ -188,21 +214,48 @@ class Shell {
 		return win.id;
 	}
 
-	/** Detaches a window (sessions keep running) and offers Undo, which restores it at the same index. */
+	/**
+	 * Closes a window with an Undo toast. The terminal or agent session it shows ends once the toast goes away
+	 * without Undo (unless another window shows it by then).
+	 */
 	close(id: string): void {
+		this.#detach(id, true);
+	}
+
+	/** Detaches a window with an Undo toast; its session keeps running and is listed under Running sessions. */
+	minimize(id: string): void {
+		this.#detach(id, false);
+	}
+
+	/** Sessions (sessionKey) of closed windows, waiting for their Undo toast to go away before they end. */
+	readonly ending = new Set<string>();
+
+	#detach(id: string, end: boolean): void {
 		const loc = this.locate(id);
 		if (!loc) return;
 		const { ws, index } = loc;
 		const title = displayTitle(loc.win);
 		const saved = $state.snapshot(loc.win) as WindowState;
 		const savedTile = ws.tile ? ($state.snapshot(ws.tile) as TileNode) : null;
+		const session = end ? sessionOf(saved) : null;
+		const key = session && sessionKey(session);
+		if (key) this.ending.add(key);
 		ws.windows.splice(index, 1);
 		ws.tile = removeLeaf(ws.tile, id);
 		if (ws.focusedId === id) ws.focusedId = (ws.windows[index] ?? ws.windows[index - 1])?.id ?? null;
 		this.#widthBeforeFull.delete(id);
 		toast({
-			message: `Closed ${title}`,
+			message: `${end ? "Closed" : "Minimized"} ${title}`,
 			action: { label: "Undo", run: () => this.#restore(ws.id, index, saved, savedTile) },
+			onclose: (reason) => {
+				if (!session || !key) return;
+				this.ending.delete(key);
+				const shown = this.find((w) => {
+					const s = sessionOf(w);
+					return s !== null && sessionKey(s) === key;
+				});
+				if (reason !== "action" && !shown) void endSession(session, title);
+			},
 		});
 	}
 
@@ -245,7 +298,7 @@ class Shell {
 			return;
 		}
 		let next: string | null = null;
-		if (ws.mode === "tile") {
+		if (layoutMode(ws) === "tile") {
 			next = neighbor(tileRects(ws.tile), current, dir);
 		} else if (dir === "left" || dir === "right") {
 			const i = ws.windows.findIndex((w) => w.id === current);
@@ -260,7 +313,7 @@ class Shell {
 		const id = ws.focusedId;
 		if (!id) return;
 		const i = ws.windows.findIndex((w) => w.id === id);
-		if (ws.mode === "tile") {
+		if (layoutMode(ws) === "tile") {
 			const other = neighbor(tileRects(ws.tile), id, dir);
 			if (!other) return;
 			ws.tile = swapLeaves(ws.tile, id, other);
@@ -372,7 +425,7 @@ class Shell {
 
 	resizeFocused(dir: Dir): void {
 		const ws = this.active;
-		if (ws.mode === "tile" && ws.focusedId) ws.tile = resizeToward(ws.tile, ws.focusedId, dir);
+		if (layoutMode(ws) === "tile" && ws.focusedId) ws.tile = resizeToward(ws.tile, ws.focusedId, dir);
 	}
 
 	// ───────────── Workspaces ─────────────

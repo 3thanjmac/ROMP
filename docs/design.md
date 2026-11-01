@@ -8,7 +8,7 @@ How the ROMP web app looks and behaves, and why. The code is the reference for e
 - **Phone first, not phone only.** Every control on a phone sits within thumb reach. Tablet and desktop get the same windows with more of them on screen.
 - **Never lose typed text.** Composers, editors and forms keep their content through disconnects, failed requests and reloads.
 - **One state vocabulary.** Every live window (terminal, agent) shows the same connection states: `connecting`, `live`, `reconnecting`, `offline`, `exited`, through one `ConnDot` and one `Banner`.
-- **Act, then offer Undo** instead of confirm dialogs. Closing a window only detaches it (the session keeps running) and offers Undo. Confirmation is kept for killing a terminal or ending an agent session.
+- **Act, then offer Undo** instead of confirm dialogs. Closing a window ends its terminal or agent session once the Undo toast goes away; Minimize detaches the window instead, and the session keeps running under Running sessions in the Overview.
 - **Self-hosted assets only**: Inter Variable and JetBrains Mono Variable via `@fontsource-variable`, icons from `@lucide/svelte` through the local registry. No third-party CSS or font URLs.
 - Motion is short (about 150 ms state changes) and disabled under `prefers-reduced-motion`.
 
@@ -16,7 +16,7 @@ How the ROMP web app looks and behaves, and why. The code is the reference for e
 
 | Layout | Width | Chrome |
 |---|---|---|
-| Phone | < 640 px | Bottom bar: workspace menu, overview (`focused / total`, warning dot when an agent needs input), scroll/tile toggle, and the filled `+` launcher on the far right. No top bar. |
+| Phone | < 640 px | Bottom bar: workspace menu, overview (`focused / total`, warning dot when an agent needs input), settings, and the filled `+` launcher on the far right. No top bar. Workspaces are always in scroll mode. |
 | Tablet | 640 to 1023 px | Top bar: workspace tabs, a strip minimap (scroll mode), offline chip, scroll/tile switch, "New window" (`Alt O`), avatar. |
 | Desktop | ≥ 1024 px | Same as tablet. |
 
@@ -24,7 +24,7 @@ The app is sized from `visualViewport` (`--vvh`), not `100vh`, so the on-screen 
 
 ## Windows
 
-Every window has the same title bar in both modes: kind icon, title, then per-window badges (agent "Working" / "Needs input", editor save status), client count and connection dot for live sessions, width preset (scroll mode), a "more" menu and close. The focused window gets an accent border and a brighter title bar.
+Every window has the same title bar in both modes: kind icon, title, then per-window badges (agent "Working" / "Needs input", editor save status), client count and connection dot for live sessions, width preset (scroll mode), a "more" menu (with Minimize for live sessions) and close. The focused window gets an accent border and a brighter title bar.
 
 - **Scroll mode** (niri-style): windows are columns on a horizontal strip, each one third, half, two thirds or full width. On a phone every column is full width and the strip snaps one column per swipe; the stored width is untouched, so the same workspace looks right on a desktop.
 - **Tile mode** (dwindle-style): windows fill a binary split tree. Split handles drag (clamped 15% to 85%), reset on double-click, and move by 5% with the arrow keys when focused.
@@ -34,8 +34,8 @@ Every window has the same title bar in both modes: kind icon, title, then per-wi
 
 One list of items feeds three surfaces: new terminal, agent, files, browser, tasks, "Open file…", and "Attach to running" sessions not shown in any window. New terminals and agents start in the focused window's directory.
 
-- **Phone launcher**: a bottom sheet with a grid of window kinds and the running sessions.
-- **Phone overview**: a sheet with workspace chips and the current workspace's windows. Tap focuses, drag reorders, swipe left closes (with Undo).
+- **Phone launcher**: a bottom sheet with a grid of window kinds.
+- **Phone overview**: a sheet with workspace chips, the current workspace's windows, and running sessions that no window shows (minimized). Tap focuses or attaches, drag reorders, swipe left closes (with Undo). Sheets close by dragging down anywhere on them.
 - **Desktop command palette** (`Alt O`): fuzzy search over windows, new windows, running sessions, tasks and commands.
 
 ## Keyboard shortcuts

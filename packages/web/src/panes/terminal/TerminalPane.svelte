@@ -33,6 +33,13 @@
 	const COPIED_MS = 1500;
 	/** Wait after a long-press lifts, so the synthesized click lands before the word is selected. */
 	const LIFT_SETTLE_MS = 50;
+	/** Release speed (px/ms) above which a scroll drag keeps gliding, and the speed where the glide stops. */
+	const FLING_MIN_SPEED = 0.3;
+	const FLING_STOP_SPEED = 0.02;
+	/** Glide speed kept per 16 ms frame. */
+	const FLING_DECAY = 0.95;
+	/** A finger resting this long before lifting ends the drag without a glide. */
+	const FLING_MAX_PAUSE_MS = 100;
 
 	let host: HTMLDivElement;
 	let term: Terminal | null = null;
@@ -55,6 +62,14 @@
 	let copiedTimer: number | undefined;
 	let pasting = $state(false);
 	let press: { id: number; x: number; y: number; timer: number } | null = null;
+	/** Touch drag that scrolls the terminal; `active` once it passed the slop. */
+	let drag: { id: number; x: number; y0: number; lastY: number; lastT: number; speed: number; active: boolean } | null =
+		null;
+	/** Sub-row scroll distance (px) carried between moves. */
+	let scrollRest = 0;
+	let flingFrame = 0;
+	/** The terminal had keyboard focus when select mode started; leaving it gives focus back. */
+	let refocusAfterSelect = false;
 
 	const conn = $derived(socket?.state ?? "connecting");
 	const termId = $derived(win.props.termId);
@@ -105,24 +120,33 @@
 		}
 	}
 
+	/** Height of one terminal row in CSS px; 0 before the first render. */
+	function rowHeight(): number {
+		const screen = term?.element?.querySelector(".xterm-screen");
+		return screen && term?.rows ? screen.clientHeight / term.rows : 0;
+	}
+
 	async function enterSelect() {
 		if (!term || snapshot) return;
 		const buffer = term.buffer.active;
-		const screen = term.element?.querySelector(".xterm-screen");
-		rowPx = screen && term.rows ? screen.clientHeight / term.rows : 0;
+		rowPx = rowHeight();
 		snapshot = snapshotBuffer(buffer);
+		refocusAfterSelect = !!term.textarea && document.activeElement === term.textarea;
 		term.blur();
 		await tick();
 		if (layer) layer.scrollTop = buffer.viewportY * rowPx;
 	}
 
-	function exitSelect() {
+	/** `refocus`: give the keyboard back if select mode took it (runs inside the tap, as iOS requires). */
+	function exitSelect(refocus = true) {
 		if (!snapshot) return;
 		if (ownedRange()) getSelection()?.removeAllRanges();
 		snapshot = null;
 		hasSelection = false;
 		copied = false;
 		clearTimeout(copiedTimer);
+		if (refocus && refocusAfterSelect) term?.focus();
+		refocusAfterSelect = false;
 	}
 
 	/** The selection as offsets into the snapshot text, when it lies inside the layer. */
@@ -219,6 +243,122 @@
 		press = null;
 	}
 
+	/**
+	 * Scrolls by `lines` (positive: towards the bottom). The normal buffer scrolls its scrollback. Full-screen apps
+	 * (alternate buffer) and apps that read the mouse get one wheel event per line, which xterm turns into an
+	 * arrow key or a mouse wheel report, the same as a mouse wheel over the terminal.
+	 */
+	function scrollRows(lines: number, x: number, y: number) {
+		if (!term || lines === 0) return;
+		if (term.buffer.active.type === "normal" && term.modes.mouseTrackingMode === "none") {
+			term.scrollLines(lines);
+			return;
+		}
+		for (let i = 0; i < Math.abs(lines); i++) {
+			term.element?.dispatchEvent(
+				new WheelEvent("wheel", {
+					deltaY: Math.sign(lines),
+					deltaMode: WheelEvent.DOM_DELTA_LINE,
+					clientX: x,
+					clientY: y,
+					bubbles: true,
+					cancelable: true,
+				}),
+			);
+		}
+	}
+
+	/** Content follows the finger: dragging down by `px` reveals earlier rows. */
+	function scrollByDrag(px: number, x: number, y: number) {
+		const row = rowHeight();
+		if (!row) return;
+		scrollRest += px;
+		const rows = Math.trunc(scrollRest / row);
+		if (rows === 0) return;
+		scrollRest -= rows * row;
+		scrollRows(-rows, x, y);
+	}
+
+	function stopFling() {
+		cancelAnimationFrame(flingFrame);
+		flingFrame = 0;
+	}
+
+	function dragStart(e: PointerEvent) {
+		stopFling();
+		if (e.pointerType !== "touch" || !e.isPrimary || snapshot) return;
+		drag = { id: e.pointerId, x: e.clientX, y0: e.clientY, lastY: e.clientY, lastT: e.timeStamp, speed: 0, active: false };
+		scrollRest = 0;
+	}
+
+	function dragMove(e: PointerEvent) {
+		if (!drag || e.pointerId !== drag.id) return;
+		const dy = e.clientY - drag.lastY;
+		const dt = e.timeStamp - drag.lastT;
+		drag.lastY = e.clientY;
+		drag.lastT = e.timeStamp;
+		drag.x = e.clientX;
+		if (dt > 0) drag.speed = dy / dt;
+		if (!drag.active) {
+			if (Math.abs(e.clientY - drag.y0) <= LONG_PRESS_SLOP_PX) return;
+			drag.active = true;
+		}
+		scrollByDrag(dy, e.clientX, e.clientY);
+	}
+
+	/** A quick release keeps the scrollback gliding; full-screen apps get no glide (it would be a burst of keys). */
+	function dragEnd(e: PointerEvent) {
+		if (!drag || e.pointerId !== drag.id) return;
+		const { active, x, lastY, lastT } = drag;
+		let speed = drag.speed;
+		drag = null;
+		const glide =
+			e.type === "pointerup" &&
+			active &&
+			Math.abs(speed) > FLING_MIN_SPEED &&
+			e.timeStamp - lastT < FLING_MAX_PAUSE_MS &&
+			term?.buffer.active.type === "normal" &&
+			term.modes.mouseTrackingMode === "none";
+		if (!glide) return;
+		let last = performance.now();
+		const step = (now: number) => {
+			const dt = now - last;
+			last = now;
+			scrollByDrag(speed * dt, x, lastY);
+			speed *= FLING_DECAY ** (dt / 16);
+			flingFrame = Math.abs(speed) > FLING_STOP_SPEED ? requestAnimationFrame(step) : 0;
+		};
+		flingFrame = requestAnimationFrame(step);
+	}
+
+	/**
+	 * Soft-keyboard Backspace. Held on iOS, it repeats as a stream of `beforeinput` deletes rather than keydowns,
+	 * and the repeat stops if the keydown is cancelled, which xterm does for a Backspace it handles. So on touch
+	 * devices a plain Backspace keydown is left alone (`skipBackspace`) and every backward delete the textarea
+	 * would apply is sent as DEL instead, keeping the textarea unchanged so xterm's own input diffing sends
+	 * nothing for it. IME composition stays with xterm.
+	 */
+	const softDelete = {
+		/** Set by a skipped keydown until its beforeinput arrives; if none does, the keydown sends DEL itself. */
+		pending: false,
+		skip(e: KeyboardEvent): boolean {
+			if (!viewport.coarse || e.type !== "keydown" || e.key !== "Backspace" || e.isComposing) return false;
+			if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return false;
+			softDelete.pending = true;
+			window.setTimeout(() => {
+				if (softDelete.pending) input("\x7f");
+				softDelete.pending = false;
+			});
+			return true;
+		},
+		beforeinput(e: InputEvent) {
+			if (!viewport.coarse || e.isComposing || !/^delete.*Backward$/.test(e.inputType)) return;
+			e.preventDefault();
+			softDelete.pending = false;
+			input("\x7f");
+		},
+	};
+
 	async function create() {
 		if (creating) return;
 		creating = true;
@@ -261,17 +401,20 @@
 			const f = new FitAddon();
 			t.loadAddon(f);
 			t.loadAddon(new WebLinksAddon((_e, uri) => window.open(uri, "_blank", "noopener")));
-			t.attachCustomKeyEventHandler((e) => !isShellChord(e));
+			t.attachCustomKeyEventHandler((e) => !isShellChord(e) && !softDelete.skip(e));
 			t.open(host);
 			term = t;
 			fit = f;
 			refit();
 			const data = t.onData(input);
+			const textarea = t.textarea;
+			textarea?.addEventListener("beforeinput", softDelete.beforeinput);
 			const ro = new ResizeObserver(() => refit());
 			ro.observe(host);
 			return () => {
 				ro.disconnect();
 				data.dispose();
+				textarea?.removeEventListener("beforeinput", softDelete.beforeinput);
 				t.dispose();
 				term = null;
 				fit = null;
@@ -373,12 +516,13 @@
 
 	// A hidden pane (workspace switch) leaves select mode.
 	$effect(() => {
-		if (!pane.visible) untrack(exitSelect);
+		if (!pane.visible) untrack(() => exitSelect(false));
 	});
 
 	onDestroy(() => {
 		pane.status.conn = null;
 		cancelPress();
+		stopFling();
 		clearTimeout(copiedTimer);
 	});
 
@@ -424,10 +568,10 @@
 		<div
 			class="xterm-host"
 			bind:this={host}
-			onpointerdowncapture={pressStart}
-			onpointermovecapture={pressMove}
-			onpointerupcapture={cancelPress}
-			onpointercancelcapture={cancelPress}
+			onpointerdowncapture={(e) => (pressStart(e), dragStart(e))}
+			onpointermovecapture={(e) => (pressMove(e), dragMove(e))}
+			onpointerupcapture={(e) => (cancelPress(), dragEnd(e))}
+			onpointercancelcapture={(e) => (cancelPress(), dragEnd(e))}
 		></div>
 		{#if !replayed && !createError && conn !== "exited"}
 			<div class="loading">
@@ -462,7 +606,7 @@
 			onpaste={paste}
 			oncopy={copySelection}
 			onselectall={selectAll}
-			ondone={exitSelect}
+			ondone={() => exitSelect()}
 		/>
 	{/if}
 </div>
@@ -498,6 +642,8 @@
 		height: 100%;
 		/* Long-press enters select mode; keep iOS from opening its own callout on the terminal. */
 		-webkit-touch-callout: none;
+		/* Vertical drags scroll the terminal (dragMove); sideways ones still swipe between windows. */
+		touch-action: pan-x;
 	}
 	.select-layer {
 		position: absolute;

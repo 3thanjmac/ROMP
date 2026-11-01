@@ -2,11 +2,11 @@
 	/**
 	 * One workspace's windows. Scroll and tile mode render the same keyed frames inside the same track, so
 	 * toggling the mode (or resizing) never remounts a pane: scroll mode lays the track out as a horizontal
-	 * strip, tile mode positions each frame absolutely from the dwindle tree.
+	 * strip, tile mode positions each frame absolutely from the dwindle tree. Phones always use scroll mode.
 	 */
 	import type { Workspace } from "@romp/protocol";
 	import { tileRects, tileSplits } from "./layout";
-	import { shell } from "./shell.svelte";
+	import { layoutMode, shell } from "./shell.svelte";
 	import SplitHandle from "./SplitHandle.svelte";
 	import { frameUi } from "./ui.svelte";
 	import { viewport } from "./viewport.svelte";
@@ -15,7 +15,7 @@
 	let { ws, active }: { ws: Workspace; active: boolean } = $props();
 
 	let track = $state<HTMLDivElement>();
-	const tile = $derived(ws.mode === "tile");
+	const tile = $derived(layoutMode(ws) === "tile");
 	const phone = $derived(viewport.layout === "phone");
 	const carousel = $derived(!tile && phone);
 	const rects = $derived(tile ? tileRects(ws.tile) : null);

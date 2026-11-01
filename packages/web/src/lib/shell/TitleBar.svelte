@@ -1,22 +1,18 @@
 <script lang="ts">
 	import type { WindowState } from "@romp/protocol";
-	import { api, errorMessage } from "../api";
 	import { Icons, KIND_ICON } from "../icons";
-	import Button from "../ui/Button.svelte";
 	import Chip from "../ui/Chip.svelte";
 	import ClientCount from "../ui/ClientCount.svelte";
 	import ConnDot from "../ui/ConnDot.svelte";
-	import Dialog from "../ui/Dialog.svelte";
 	import Icon from "../ui/Icon.svelte";
 	import IconButton from "../ui/IconButton.svelte";
 	import Menu from "../ui/Menu.svelte";
 	import MenuItem from "../ui/MenuItem.svelte";
 	import MenuSection from "../ui/MenuSection.svelte";
 	import Spinner from "../ui/Spinner.svelte";
-	import { toast } from "../ui/toast.svelte";
 	import type { PaneStatus } from "./pane.svelte";
 	import SaveStatus from "./SaveStatus.svelte";
-	import { displayTitle, shell } from "./shell.svelte";
+	import { displayTitle, sessionOf, shell } from "./shell.svelte";
 	import { viewport } from "./viewport.svelte";
 	import WidthPresetButton from "./WidthPresetButton.svelte";
 
@@ -37,7 +33,6 @@
 
 	let renaming = $state(false);
 	let draft = $state("");
-	let confirmKill = $state(false);
 
 	function startRename() {
 		draft = title;
@@ -59,17 +54,8 @@
 		}
 	}
 
-	const killLabel = $derived(win.kind === "terminal" ? "Kill process" : "End session");
-
-	async function kill() {
-		try {
-			if (win.kind === "terminal" && win.props.termId) await api.terms.kill(win.props.termId);
-			if (win.kind === "agent" && win.props.agentId) await api.agents.kill(win.props.agentId);
-			confirmKill = false;
-		} catch (err) {
-			toast({ message: errorMessage(err), tone: "danger" });
-		}
-	}
+	/** Windows showing a live session can be minimized: detached while the session keeps running. */
+	const canMinimize = $derived(sessionOf(win) !== null && status.conn !== "exited");
 </script>
 
 <header class="bar" class:focused class:phone>
@@ -124,30 +110,16 @@
 				New workspace
 			</MenuItem>
 			<MenuSection label="Window" />
-			<MenuItem icon={Icons.Close} onselect={() => shell.close(win.id)}>Close window</MenuItem>
-			{#if (win.kind === "terminal" && win.props.termId) || (win.kind === "agent" && win.props.agentId)}
-				<MenuItem icon={Icons.Stop} danger disabled={status.conn === "exited"} onselect={() => (confirmKill = true)}>
-					{killLabel}
-				</MenuItem>
+			{#if canMinimize}
+				<MenuItem icon={Icons.Minimize} onselect={() => shell.minimize(win.id)}>Minimize</MenuItem>
 			{/if}
+			<MenuItem icon={Icons.Close} onselect={() => shell.close(win.id)}>Close window</MenuItem>
 		</Menu>
 		{#if !phone}
 			<IconButton size="bar" label="Close window" icon={Icons.Close} onclick={() => shell.close(win.id)} />
 		{/if}
 	</span>
 </header>
-
-<Dialog bind:open={confirmKill} title={win.kind === "terminal" ? "Kill this terminal?" : "End this agent session?"}>
-	<p class="muted">
-		{win.kind === "terminal"
-			? "Running programs stop and scrollback is lost."
-			: "The agent stops and its process exits. The transcript stays in the session history."}
-	</p>
-	{#snippet footer()}
-		<Button onclick={() => (confirmKill = false)}>Cancel</Button>
-		<Button variant="danger" onclick={kill}>{win.kind === "terminal" ? "Kill" : "End session"}</Button>
-	{/snippet}
-</Dialog>
 
 <style>
 	.bar {

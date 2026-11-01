@@ -44,11 +44,13 @@ import KeyboardOff from "@lucide/svelte/icons/keyboard-off";
 import Layers from "@lucide/svelte/icons/layers";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+import Minus from "@lucide/svelte/icons/minus";
 import Pencil from "@lucide/svelte/icons/pencil";
 import Plus from "@lucide/svelte/icons/plus";
 import Rocket from "@lucide/svelte/icons/rocket";
 import RotateCw from "@lucide/svelte/icons/rotate-cw";
 import Search from "@lucide/svelte/icons/search";
+import Settings from "@lucide/svelte/icons/settings";
 import Square from "@lucide/svelte/icons/square";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -121,6 +123,8 @@ export const Icons = {
 	Grip: GripVertical,
 	Shortcuts: Command,
 	Home: House,
+	Minimize: Minus,
+	Settings,
 } satisfies Record<string, IconComponent>;
 
 export const KIND_ICON: Record<WindowKind, IconComponent> = {

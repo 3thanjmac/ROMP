@@ -5,7 +5,6 @@
 	import Icon from "../ui/Icon.svelte";
 	import Sheet from "../ui/Sheet.svelte";
 	import { LAUNCH_ITEMS, launch, launchCwd, type LaunchKind } from "./launcherItems";
-	import RunningList from "./RunningList.svelte";
 	import { session } from "./session.svelte";
 	import { frameUi } from "./ui.svelte";
 
@@ -77,7 +76,6 @@
 				</button>
 			{/each}
 		</div>
-		{#if frameUi.launcher}<RunningList onpick={() => (frameUi.launcher = false)} />{/if}
 	</div>
 </Sheet>
 

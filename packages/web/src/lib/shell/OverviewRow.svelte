@@ -94,7 +94,7 @@
 		onpointercancel={up}
 		role="presentation"
 	>
-		<span class="grip" role="button" tabindex="-1" aria-label="Drag to reorder" onpointerdown={ongrip}>
+		<span class="grip" role="button" tabindex="-1" aria-label="Drag to reorder" data-sheet-nodrag onpointerdown={ongrip}>
 			<Icon icon={Icons.Grip} />
 		</span>
 		<button class="main" onclick={click}>

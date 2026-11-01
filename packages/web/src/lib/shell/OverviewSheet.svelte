@@ -4,6 +4,7 @@
 	import IconButton from "../ui/IconButton.svelte";
 	import Sheet from "../ui/Sheet.svelte";
 	import OverviewRow from "./OverviewRow.svelte";
+	import RunningList from "./RunningList.svelte";
 	import { shell } from "./shell.svelte";
 	import { frameUi } from "./ui.svelte";
 
@@ -96,6 +97,7 @@
 			{/each}
 		</ul>
 	{/if}
+	{#if frameUi.overview}<RunningList onpick={() => (frameUi.overview = false)} />{/if}
 </Sheet>
 
 <style>

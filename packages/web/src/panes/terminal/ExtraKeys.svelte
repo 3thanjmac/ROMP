@@ -1,10 +1,10 @@
 <script lang="ts">
 	/**
-	 * Touch key row under a focused terminal. pointerdown only prevents the focus loss (so the soft keyboard
-	 * stays up, and in select mode the native text selection survives); keys fire on click. Ctrl/Alt: tap
-	 * latches for the next key, double-tap locks, tap again releases. Arrows repeat while held. In select mode
-	 * the row turns into the selection toolbar.
+	 * Touch key row under a focused terminal. Keys never take focus, so the soft keyboard stays up (and in select
+	 * mode the native text selection survives). Ctrl/Alt: tap latches for the next key, double-tap locks, tap
+	 * again releases. Arrows repeat while held. In select mode the row turns into the selection toolbar.
 	 */
+	import type { Attachment } from "svelte/attachments";
 	import { Icons } from "../../lib/icons";
 	import Icon from "../../lib/ui/Icon.svelte";
 	import { KEY_SEQ, type ModState, nextModState } from "./keys";
@@ -51,10 +51,12 @@
 	const DOUBLE_TAP_MS = 300;
 	const REPEAT_DELAY_MS = 400;
 	const REPEAT_EVERY_MS = 50;
+	/** A click this soon after a handled touch is one the browser synthesized anyway: ignore it. */
+	const GHOST_CLICK_MS = 600;
 
 	const lastTap = { ctrl: 0, alt: 0 };
 
-	function toggle(which: "ctrl" | "alt", e: MouseEvent) {
+	function toggle(which: "ctrl" | "alt", e: Event) {
 		const now = e.timeStamp;
 		const doubleTap = now - lastTap[which] < DOUBLE_TAP_MS;
 		lastTap[which] = now;
@@ -62,36 +64,78 @@
 		else alt = nextModState(alt, doubleTap);
 	}
 
-	let repeatDelay: number | undefined;
-	let repeatTimer: number | undefined;
-	let repeated = false;
-
-	function keep(e: PointerEvent) {
-		e.preventDefault();
+	/**
+	 * Runs `run` when the key is pressed, without ever moving focus. pointerdown is cancelled, so the terminal's
+	 * textarea (and with it the iOS keyboard) keeps focus. A touch fires on pointerup and cancels its touchend:
+	 * iOS then synthesizes no mouse events or click for the tap, which on a quick second tap counted as a
+	 * double-tap and dismissed the keyboard. A touch that turns into scrolling the row (pointercancel) or lifts
+	 * outside the key fires nothing. Mouse and keyboard activation go through click. `repeat` keys fire again
+	 * every REPEAT_EVERY_MS while held.
+	 */
+	function key(run: (e: Event) => void, repeat = false): Attachment<HTMLButtonElement> {
+		return (node) => {
+			let touch: number | null = null;
+			let lastTouch = -Infinity;
+			let repeated = false;
+			let delay: number | undefined;
+			let timer: number | undefined;
+			const stop = () => {
+				clearTimeout(delay);
+				clearInterval(timer);
+			};
+			const down = (e: PointerEvent) => {
+				e.preventDefault();
+				if (node.disabled) return;
+				touch = e.pointerType === "touch" ? e.pointerId : null;
+				repeated = false;
+				stop();
+				if (!repeat) return;
+				delay = window.setTimeout(() => {
+					repeated = true;
+					run(e);
+					timer = window.setInterval(() => run(e), REPEAT_EVERY_MS);
+				}, REPEAT_DELAY_MS);
+			};
+			const up = (e: PointerEvent) => {
+				stop();
+				if (e.pointerId !== touch) return;
+				touch = null;
+				lastTouch = e.timeStamp;
+				const r = node.getBoundingClientRect();
+				const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+				if (inside && !repeated && !node.disabled) run(e);
+			};
+			const cancel = () => {
+				stop();
+				touch = null;
+			};
+			const touchend = (e: TouchEvent) => {
+				if (e.cancelable) e.preventDefault();
+			};
+			const click = (e: MouseEvent) => {
+				if (e.timeStamp - lastTouch < GHOST_CLICK_MS) return;
+				if (repeated) repeated = false;
+				else run(e);
+			};
+			node.addEventListener("pointerdown", down);
+			node.addEventListener("pointerup", up);
+			node.addEventListener("pointercancel", cancel);
+			node.addEventListener("pointerleave", stop);
+			node.addEventListener("touchend", touchend, { passive: false });
+			node.addEventListener("click", click);
+			return () => {
+				stop();
+				node.removeEventListener("pointerdown", down);
+				node.removeEventListener("pointerup", up);
+				node.removeEventListener("pointercancel", cancel);
+				node.removeEventListener("pointerleave", stop);
+				node.removeEventListener("touchend", touchend);
+				node.removeEventListener("click", click);
+			};
+		};
 	}
 
-	function arrowDown(e: PointerEvent, seq: string) {
-		e.preventDefault();
-		repeated = false;
-		stopRepeat();
-		repeatDelay = window.setTimeout(() => {
-			repeated = true;
-			onkey(seq);
-			repeatTimer = window.setInterval(() => onkey(seq), REPEAT_EVERY_MS);
-		}, REPEAT_DELAY_MS);
-	}
-
-	function stopRepeat() {
-		clearTimeout(repeatDelay);
-		clearInterval(repeatTimer);
-	}
-
-	function arrowClick(seq: string) {
-		if (!repeated) onkey(seq);
-		repeated = false;
-	}
-
-	const SIMPLE: Array<{ label: string; seq: string; aria?: string }> = [
+	const SIMPLE: Array<{ label: string; seq: string }> = [
 		{ label: "|", seq: "|" },
 		{ label: "~", seq: "~" },
 		{ label: "/", seq: "/" },
@@ -107,49 +151,29 @@
 
 {#if selecting}
 	<div class="keys" role="toolbar" aria-label="Text selection">
-		<button class="key copy" disabled={!hasSelection || copied} onpointerdown={keep} onclick={oncopy}>
+		<button class="key copy" disabled={!hasSelection || copied} {@attach key(() => oncopy())}>
 			<Icon icon={copied ? Icons.Check : Icons.Copy} />
 			{copied ? "Copied" : "Copy"}
 		</button>
-		<button class="key" disabled={!hasText} onpointerdown={keep} onclick={onselectall}>Select all</button>
-		<button class="key" disabled={!canPaste} onpointerdown={keep} onclick={onpaste}>Paste</button>
-		<button class="key" onpointerdown={keep} onclick={ondone}>Done</button>
+		<button class="key" disabled={!hasText} {@attach key(() => onselectall())}>Select all</button>
+		<button class="key" disabled={!canPaste} {@attach key(() => onpaste())}>Paste</button>
+		<button class="key" {@attach key(() => ondone())}>Done</button>
 	</div>
 {:else}
 	<div class="keys" role="toolbar" aria-label="Extra keys">
-		<button class="key" onpointerdown={keep} onclick={() => onkey(KEY_SEQ.esc)}>Esc</button>
-		<button class="key" onpointerdown={keep} onclick={() => onkey(KEY_SEQ.tab)}>Tab</button>
-		<button
-			class="key"
-			aria-pressed={ctrl !== "off"}
-			data-mod={ctrl}
-			onpointerdown={keep}
-			onclick={(e) => toggle("ctrl", e)}
-		>
-			Ctrl
-		</button>
-		<button class="key" aria-pressed={alt !== "off"} data-mod={alt} onpointerdown={keep} onclick={(e) => toggle("alt", e)}>
-			Alt
-		</button>
-		<button class="key" onpointerdown={keep} onclick={onselect}>Select</button>
-		<button class="key" disabled={!canPaste} onpointerdown={keep} onclick={onpaste}>Paste</button>
+		<button class="key" {@attach key(() => onkey(KEY_SEQ.esc))}>Esc</button>
+		<button class="key" {@attach key(() => onkey(KEY_SEQ.tab))}>Tab</button>
+		<button class="key" aria-pressed={ctrl !== "off"} data-mod={ctrl} {@attach key((e) => toggle("ctrl", e))}>Ctrl</button>
+		<button class="key" aria-pressed={alt !== "off"} data-mod={alt} {@attach key((e) => toggle("alt", e))}>Alt</button>
+		<button class="key" {@attach key(() => onselect())}>Select</button>
+		<button class="key" disabled={!canPaste} {@attach key(() => onpaste())}>Paste</button>
 		{#each ARROWS as a (a.seq)}
-			<button
-				class="key"
-				aria-label={a.aria}
-				onpointerdown={(e) => arrowDown(e, a.seq)}
-				onpointerup={stopRepeat}
-				onpointercancel={stopRepeat}
-				onpointerleave={stopRepeat}
-				onclick={() => arrowClick(a.seq)}
-			>
-				{a.label}
-			</button>
+			<button class="key" aria-label={a.aria} {@attach key(() => onkey(a.seq), true)}>{a.label}</button>
 		{/each}
 		{#each SIMPLE as k (k.seq)}
-			<button class="key" onpointerdown={keep} onclick={() => onkey(k.seq)}>{k.label}</button>
+			<button class="key" {@attach key(() => onkey(k.seq))}>{k.label}</button>
 		{/each}
-		<button class="key" aria-label="Hide keyboard" onpointerdown={keep} onclick={onhide}>
+		<button class="key" aria-label="Hide keyboard" {@attach key(() => onhide())}>
 			<Icon icon={Icons.HideKeyboard} />
 		</button>
 	</div>
@@ -167,6 +191,8 @@
 		overflow-x: auto;
 		scroll-snap-type: x proximity;
 		scrollbar-width: none;
+		/* Only the row's own sideways scroll: a vertical drag must not move anything. */
+		touch-action: pan-x;
 		flex: none;
 	}
 	.key {
@@ -186,6 +212,7 @@
 		scroll-snap-align: start;
 		user-select: none;
 		-webkit-user-select: none;
+		touch-action: pan-x;
 		&:not([disabled]):active {
 			background: var(--surface-3);
 		}
