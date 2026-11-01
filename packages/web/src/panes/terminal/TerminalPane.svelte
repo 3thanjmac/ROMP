@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { TermClientMsg, TermServerMsg } from "@romp/protocol";
+	import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard";
 	import { FitAddon } from "@xterm/addon-fit";
 	import { WebLinksAddon } from "@xterm/addon-web-links";
 	import { Terminal } from "@xterm/xterm";
@@ -40,6 +41,8 @@
 	const FLING_DECAY = 0.95;
 	/** A finger resting this long before lifting ends the drag without a glide. */
 	const FLING_MAX_PAUSE_MS = 100;
+	/** macOS copies and pastes with Cmd, which xterm already leaves to the browser; Ctrl+C/V stay control keys. */
+	const IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 
 	let host: HTMLDivElement;
 	let term: Terminal | null = null;
@@ -70,6 +73,8 @@
 	let flingFrame = 0;
 	/** The terminal had keyboard focus when select mode started; leaving it gives focus back. */
 	let refocusAfterSelect = false;
+	/** The replayed scrollback is being parsed: its old OSC 52 copies must not overwrite the clipboard again. */
+	let replaying = false;
 
 	const conn = $derived(socket?.state ?? "connecting");
 	const termId = $derived(win.props.termId);
@@ -359,6 +364,37 @@
 		},
 	};
 
+	/**
+	 * Ctrl+V pastes, and Ctrl+C copies while xterm has a selection, like Windows Terminal (Ctrl+Shift+V already
+	 * pastes). Returning true leaves the keydown to the browser, which fires the native paste/copy event that xterm
+	 * turns into a bracketed paste or a copy of its selection, instead of sending ^V/^C to the program.
+	 */
+	function nativeClipboardKey(e: KeyboardEvent): boolean {
+		if (IS_MAC || e.type !== "keydown" || !e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return false;
+		const key = e.key.toLowerCase();
+		if (key === "v") return true;
+		if (key !== "c" || !term?.hasSelection()) return false;
+		// After the copy event: the next Ctrl+C interrupts again.
+		window.setTimeout(() => term?.clearSelection());
+		return true;
+	}
+
+	/**
+	 * OSC 52 copies from programs (omp, tmux, vim) go to the browser clipboard. Reads are refused: they would let
+	 * anything running in the terminal, or a file printed to it, take the clipboard.
+	 */
+	const osc52: IClipboardProvider = {
+		readText: () => "",
+		async writeText(selection, text) {
+			if (replaying || selection !== "c" || !text) return;
+			try {
+				await navigator.clipboard.writeText(text);
+			} catch {
+				// Unfocused tab or no permission: nothing to do, the program has no way to hear about it.
+			}
+		},
+	};
+
 	async function create() {
 		if (creating) return;
 		creating = true;
@@ -406,7 +442,8 @@
 			const f = new FitAddon();
 			t.loadAddon(f);
 			t.loadAddon(new WebLinksAddon((_e, uri) => window.open(uri, "_blank", "noopener")));
-			t.attachCustomKeyEventHandler((e) => !isShellChord(e) && !softDelete.skip(e));
+			t.loadAddon(new ClipboardAddon(undefined, osc52));
+			t.attachCustomKeyEventHandler((e) => !isShellChord(e) && !softDelete.skip(e) && !nativeClipboardKey(e));
 			t.open(host);
 			term = t;
 			fit = f;
@@ -457,7 +494,8 @@
 				switch (msg.t) {
 					case "replay":
 						term.reset();
-						term.write(msg.d);
+						replaying = true;
+						term.write(msg.d, () => (replaying = false));
 						replayed = true;
 						refit();
 						sendResize();
