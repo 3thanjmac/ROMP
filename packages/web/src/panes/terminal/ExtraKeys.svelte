@@ -149,8 +149,9 @@
 	];
 </script>
 
-{#if selecting}
-	<div class="keys" role="toolbar" aria-label="Text selection">
+<!-- One root across both modes, so the entry animation plays when the row appears, not on a mode switch. -->
+<div class="keys" role="toolbar" aria-label={selecting ? "Text selection" : "Extra keys"}>
+	{#if selecting}
 		<button class="key copy" disabled={!hasSelection || copied} {@attach key(() => oncopy())}>
 			<Icon icon={copied ? Icons.Check : Icons.Copy} />
 			{copied ? "Copied" : "Copy"}
@@ -158,9 +159,7 @@
 		<button class="key" disabled={!hasText} {@attach key(() => onselectall())}>Select all</button>
 		<button class="key" disabled={!canPaste} {@attach key(() => onpaste())}>Paste</button>
 		<button class="key" {@attach key(() => ondone())}>Done</button>
-	</div>
-{:else}
-	<div class="keys" role="toolbar" aria-label="Extra keys">
+	{:else}
 		<button class="key" {@attach key(() => onkey(KEY_SEQ.esc))}>Esc</button>
 		<button class="key" {@attach key(() => onkey(KEY_SEQ.tab))}>Tab</button>
 		<button class="key" aria-pressed={ctrl !== "off"} data-mod={ctrl} {@attach key((e) => toggle("ctrl", e))}>Ctrl</button>
@@ -176,8 +175,8 @@
 		<button class="key" aria-label="Hide keyboard" {@attach key(() => onhide())}>
 			<Icon icon={Icons.HideKeyboard} />
 		</button>
-	</div>
-{/if}
+	{/if}
+</div>
 
 <style>
 	.keys {
@@ -194,6 +193,15 @@
 		/* Only the row's own sideways scroll: a vertical drag must not move anything. */
 		touch-action: pan-x;
 		flex: none;
+		animation: keys-in var(--dur-enter) var(--ease);
+	}
+	/* Rises out of its slot's bottom edge: the clip tracks the slide so nothing paints below the pane. */
+	@keyframes keys-in {
+		from {
+			translate: 0 100%;
+			clip-path: inset(0 0 100% 0);
+			opacity: 0;
+		}
 	}
 	.key {
 		display: inline-flex;

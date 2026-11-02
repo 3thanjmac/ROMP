@@ -38,6 +38,8 @@
 		{ value: "push" as LandMode, label: `Push to ${repo.branch}`, icon: Icons.LandPush },
 		{ value: "pr" as LandMode, label: "Pull request", icon: Icons.LandPr },
 	]);
+	const compactLand = $derived(actionsWidth > 0 && actionsWidth < COMPACT_LAND_PX);
+	const landLabel = $derived(landOptions.find((o) => o.value === repo.land)?.label);
 
 	async function setLand(land: LandMode) {
 		clearTimeout(savedTimer);
@@ -90,7 +92,7 @@
 			required
 			rows="3"
 			aria-invalid={touched && !prompt.trim()}
-			placeholder="Describe the change, e.g. Add a dark mode toggle to the settings page"
+			placeholder="Describe the change..."
 		></textarea>
 	</label>
 	<label>
@@ -104,9 +106,10 @@
 				label="Landing mode for {repo.name}"
 				options={landOptions}
 				value={repo.land}
-				iconOnly={actionsWidth > 0 && actionsWidth < COMPACT_LAND_PX}
+				iconOnly={compactLand}
 				onchange={setLand}
 			/>
+			{#if compactLand}<span class="land-label" aria-hidden="true">{landLabel}</span>{/if}
 			{#if saved}<span class="meta saved" role="status">Saved</span>{/if}
 		</div>
 		<div class="buttons">
@@ -144,6 +147,11 @@
 	}
 	.buttons {
 		margin-inline-start: auto;
+	}
+	.land-label {
+		font-size: var(--text-sm);
+		color: var(--fg-muted);
+		white-space: nowrap;
 	}
 	.saved {
 		animation: fade var(--dur-enter) var(--ease);
