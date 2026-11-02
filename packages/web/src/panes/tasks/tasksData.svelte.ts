@@ -12,6 +12,35 @@ const SHIP_HOLD_MS = 5000;
 
 export const taskKey = (t: Pick<TaskInfo, "repo" | "slug">) => `${t.repo}/${t.slug}`;
 
+const LAST_REPO_KEY = "romp.tasks.lastRepo";
+
+/** The repo the user last expanded, so a new Tasks window opens on it. Storage can throw (private mode, quota). */
+export const lastRepo = {
+	get(): string | null {
+		try {
+			return localStorage.getItem(LAST_REPO_KEY);
+		} catch {
+			return null;
+		}
+	},
+	set(name: string): void {
+		try {
+			localStorage.setItem(LAST_REPO_KEY, name);
+		} catch {
+			// Not remembering the repo only costs the user a click next time.
+		}
+	},
+	/** Forgets `name` if it is the remembered repo. */
+	forget(name: string): void {
+		if (lastRepo.get() !== name) return;
+		try {
+			localStorage.removeItem(LAST_REPO_KEY);
+		} catch {
+			// Same as set: a stale entry is ignored when its repo is missing.
+		}
+	},
+};
+
 export class TasksData {
 	repos: RepoInfo[] | null = $state(null);
 	tasks: TaskInfo[] = $state([]);
@@ -145,12 +174,22 @@ export class TasksData {
 		repo.land = land;
 		try {
 			const updated = await api.repos.settings(repo.name, { land });
-			this.repos = this.repos?.map((r) => (r.name === updated.name ? updated : r)) ?? null;
+			this.replaceRepo(updated);
 			return true;
 		} catch (err) {
 			repo.land = before;
 			toast({ message: errorMessage(err), tone: "danger" });
 			return false;
 		}
+	}
+
+	replaceRepo(updated: RepoInfo): void {
+		this.repos = this.repos?.map((r) => (r.name === updated.name ? updated : r)) ?? null;
+	}
+
+	/** Drops a deleted repo and its tasks locally ahead of the next load. */
+	dropRepo(name: string): void {
+		this.repos = this.repos?.filter((r) => r.name !== name) ?? null;
+		this.tasks = this.tasks.filter((t) => t.repo !== name);
 	}
 }

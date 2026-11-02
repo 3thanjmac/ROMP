@@ -21,6 +21,9 @@ class Viewport {
 
 export const viewport = new Viewport();
 
+/** iPhone / iPod Safari (including home-screen apps): components that imitate native iOS controls switch on this. */
+export const IPHONE = /iPhone|iPod/.test(navigator.userAgent);
+
 function watch(query: string, apply: (matches: boolean) => void): void {
 	const mql = matchMedia(query);
 	apply(mql.matches);

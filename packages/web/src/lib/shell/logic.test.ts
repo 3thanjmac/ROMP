@@ -1,7 +1,7 @@
 import type { TaskInfo } from "@romp/protocol";
 import { describe, expect, it } from "vitest";
 import { isAbsolute, normalizeAddress, proxiedPort } from "../../panes/browser/address";
-import { anyShipping, groupTasks, titleFromPrompt } from "../../panes/tasks/group";
+import { anyShipping, groupTasks, pinFirst, remoteLabel, repoSearchQuery } from "../../panes/tasks/group";
 import { applyModifiers, KEY_SEQ, nextModState } from "../../panes/terminal/keys";
 import { fuzzyFilter, fuzzyScore } from "./fuzzy";
 import { matchShortcut } from "./keyboard";
@@ -87,11 +87,22 @@ describe("tasks", () => {
 		expect(groups[1]!.tasks.map((t) => t.createdAt)).toEqual([3, 1]);
 		expect(anyShipping([task("landing", 1)])).toBe(true);
 	});
-	it("suggests a title from the first prompt line", () => {
-		expect(titleFromPrompt("\n  Fix login  \nmore")).toBe("Fix login");
-		const long = titleFromPrompt("word ".repeat(30));
-		expect(long.length).toBeLessThanOrEqual(60);
-		expect(long.endsWith("word")).toBe(true);
+	it("pins the remembered repo first and keeps the rest in order", () => {
+		const repos = [{ name: "a" }, { name: "b" }, { name: "c" }];
+		expect(pinFirst(repos, "c").map((r) => r.name)).toEqual(["c", "a", "b"]);
+		expect(pinFirst(repos, "gone").map((r) => r.name)).toEqual(["a", "b", "c"]);
+		expect(pinFirst(repos, null)).not.toBe(repos);
+	});
+	it("labels remotes as host/path", () => {
+		expect(remoteLabel("https://github.com/you/app.git")).toBe("github.com/you/app");
+		expect(remoteLabel("git@github.com:you/app.git")).toBe("github.com/you/app");
+		expect(remoteLabel(null)).toBe("hub only");
+	});
+	it("searches GitHub only for plain text, never URLs or paths", () => {
+		expect(repoSearchQuery("  romp ")).toBe("romp");
+		for (const text of ["", " a ", "HTTPS://github.com/x", "git@github.com:x", "ssh://h/x", "/srv/x", "~/x", "./x", "file:///x"]) {
+			expect(repoSearchQuery(text)).toBeNull();
+		}
 	});
 });
 

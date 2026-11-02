@@ -1,17 +1,22 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { LandMode, RepoAdd, RepoInfo, RepoSettingsUpdate } from "@romp/protocol";
+import type { LandMode, RepoAdd, RepoBranches, RepoInfo, RepoSettingsUpdate } from "@romp/protocol";
 import {
 	cloneDir,
 	hubDir,
 	isRepoName,
+	isSlug,
 	QUEUE_STATES,
+	repoEnvDir,
+	repoEnvFile,
 	type RompEnv,
 	settingsFile,
+	taskMetaDir,
+	worktreeDir,
 	workRootLock,
 } from "./env.ts";
 import { RompError } from "./errors.ts";
-import { ensureDir, makeGroupShared, SHARED_DIR_MODE, withLock, writeFileAtomic } from "./fsutil.ts";
+import { ensureDir, makeGroupShared, SHARED_DIR_MODE, tryWithLock, withLock, writeFileAtomic } from "./fsutil.ts";
 import { ensureMergeDriver } from "./merge.ts";
 import {
 	git,
@@ -22,6 +27,7 @@ import {
 	SHARED_REPO_CONFIG,
 	SHARED_UPLOAD_PACK,
 } from "./proc.ts";
+import { landingsPending, queueLock } from "./status.ts";
 
 /** Hub-side settings in `$ROMP_ROOT/repos/<name>.toml`. `setup`/`test` override `.romp.toml` when not null. */
 export interface RepoSettings {
@@ -111,6 +117,7 @@ export async function getRepo(env: RompEnv, name: string): Promise<RepoInfo> {
 		setup: commands.setup,
 		test: commands.test,
 		cloned: fs.existsSync(cloneDir(env, name)),
+		env: fs.existsSync(repoEnvFile(env, name)),
 	};
 }
 
@@ -128,8 +135,17 @@ export function repoNames(env: RompEnv): string[] {
 		.sort();
 }
 
+/** Every repo, skipping ones removed while listing. */
 export async function listRepos(env: RompEnv): Promise<RepoInfo[]> {
-	return Promise.all(repoNames(env).map((name) => getRepo(env, name)));
+	const repos = await Promise.all(
+		repoNames(env).map((name) =>
+			getRepo(env, name).catch((err: unknown) => {
+				if (err instanceof RompError && err.code === "not_found") return null;
+				throw err;
+			}),
+		),
+	);
+	return repos.filter((r) => r !== null);
 }
 
 function requireRoot(env: RompEnv): void {
@@ -138,7 +154,7 @@ function requireRoot(env: RompEnv): void {
 }
 
 /** Adding a repo writes into the shared hub as this user, so the running process needs the romp group. */
-function requireHubWritable(env: RompEnv): void {
+export function requireHubWritable(env: RompEnv): void {
 	const hub = path.join(env.root, "hub");
 	try {
 		fs.accessSync(hub, fs.constants.W_OK);
@@ -234,6 +250,15 @@ export async function addRepo(env: RompEnv, add: RepoAdd): Promise<RepoInfo> {
 	return getRepo(env, name);
 }
 
+/** `git check-ref-format --branch`, plus romp's own namespaces, which are never integration branches. */
+async function requireBranchName(env: RompEnv, branch: string): Promise<void> {
+	const ok = await run(["git", "check-ref-format", "--branch", branch], { cwd: env.root });
+	if (ok.code !== 0 || branch.startsWith("-") || isRompBranch(branch))
+		throw new RompError("bad_request", `Invalid branch: ${branch}`);
+}
+
+const isRompBranch = (branch: string) => branch.startsWith("agent/") || branch.startsWith("land/");
+
 export async function updateRepoSettings(env: RompEnv, name: string, update: RepoSettingsUpdate): Promise<RepoInfo> {
 	const settings = readSettings(env, name);
 	if (update.land !== undefined) {
@@ -244,7 +269,136 @@ export async function updateRepoSettings(env: RompEnv, name: string, update: Rep
 	}
 	if (update.setup !== undefined) settings.setup = update.setup;
 	if (update.test !== undefined) settings.test = update.test;
-	writeSettings(env, name, settings);
+	const branch = update.branch?.trim();
+	if (branch === undefined || branch === settings.branch) {
+		writeSettings(env, name, settings);
+		return getRepo(env, name);
+	}
+	await requireBranchName(env, branch);
+	requireHubWritable(env);
+	await withQueueIdle(env, name, "switching its branch", async () => {
+		const fresh = { ...readSettings(env, name), land: settings.land, setup: settings.setup, test: settings.test };
+		const ref = `refs/heads/${branch}`;
+		if (!(await hubGit(env, name, ["rev-parse", "-q", "--verify", ref], true)).stdout.trim()) {
+			if (fresh.remote === null) throw new RompError("bad_request", `The hub has no branch ${branch}`);
+			const args = ["fetch", "-q", "--no-tags"];
+			if (isLocalUrl(fresh.remote)) args.push("--upload-pack", SHARED_UPLOAD_PACK);
+			const fetched = await git(env, hubDir(env, name), [...SHARED_REPO_CONFIG, ...args, "--", fresh.remote, `+${ref}:${ref}`], {
+				allowFail: true,
+				timeoutMs: 30 * 60_000,
+			});
+			if (fetched.code !== 0) {
+				const detail = (fetched.stderr.trim() || fetched.stdout.trim()).split("\n").slice(-3).join("\n");
+				throw new RompError("bad_request", `Could not fetch ${branch} from ${fresh.remote}: ${detail}`);
+			}
+		}
+		await hubGit(env, name, ["symbolic-ref", "HEAD", ref]);
+		fresh.branch = branch;
+		writeSettings(env, name, fresh);
+	});
+	return getRepo(env, name);
+}
+
+/**
+ * Run `fn` holding the merge queue's lock for `repo`, refusing (409) while a landing for it is queued or running.
+ * The queue skips a repo whose lock is held, so nothing lands while `fn` runs.
+ */
+export async function withQueueIdle(env: RompEnv, repo: string, doing: string, fn: () => Promise<void>): Promise<void> {
+	const busy = () => new RompError("conflict", `A landing for ${repo} is queued or running; try ${doing} when it finishes`);
+	ensureDir(path.join(env.root, "work"), SHARED_DIR_MODE);
+	const done = await tryWithLock(queueLock(env, repo), async () => {
+		if (landingsPending(env, repo)) throw busy();
+		await fn();
+		return true;
+	});
+	if (done === null) throw busy();
+}
+
+/** Heads to offer as the integration branch: upstream's when the repo has one, else the hub's. */
+export async function repoBranches(env: RompEnv, name: string): Promise<RepoBranches> {
+	const settings = readSettings(env, name);
+	let refs: string[];
+	if (settings.remote) {
+		const args = ["ls-remote", "--heads"];
+		if (isLocalUrl(settings.remote)) args.push("--upload-pack", SHARED_UPLOAD_PACK);
+		const out = await gitOut(env, env.root, [...SHARED_REPO_CONFIG, ...args, "--", settings.remote], { timeoutMs: 60_000 });
+		refs = out.split("\n").map((line) => line.split("\t")[1] ?? "");
+	} else {
+		refs = (await hubGit(env, name, ["for-each-ref", "--format=%(refname)", "refs/heads/"])).stdout.split("\n");
+	}
+	const others = refs
+		.filter((ref) => ref.startsWith("refs/heads/"))
+		.map((ref) => ref.slice("refs/heads/".length))
+		.filter((b) => b !== settings.branch && !isRompBranch(b))
+		.sort();
+	return { current: settings.branch, branches: [settings.branch, ...others] };
+}
+
+/** Lines romp keeps in every user clone's `info/exclude` (shared by all its worktrees). */
+const CLONE_EXCLUDES = ["/.env"];
+
+function ensureCloneExcludes(clone: string): void {
+	const file = path.join(clone, "info", "exclude");
+	let text = "";
+	try {
+		text = fs.readFileSync(file, "utf8");
+	} catch {
+		ensureDir(path.dirname(file));
+	}
+	const have = new Set(text.split("\n").map((l) => l.trim()));
+	const missing = CLONE_EXCLUDES.filter((line) => !have.has(line));
+	if (missing.length === 0) return;
+	const sep = text && !text.endsWith("\n") ? "\n" : "";
+	fs.appendFileSync(file, `${sep}# romp: never commit the uploaded .env\n${missing.join("\n")}\n`);
+}
+
+/** This user's task slugs for `repo` (from the clone's task metadata). */
+export function taskSlugs(env: RompEnv, repo: string): string[] {
+	try {
+		return fs
+			.readdirSync(taskMetaDir(env, repo))
+			.filter((f) => f.endsWith(".json"))
+			.map((f) => f.slice(0, -5))
+			.filter(isSlug);
+	} catch {
+		return [];
+	}
+}
+
+/** Copy the user's uploaded `.env` for `repo` into a worktree (mode 0600). No-op without an upload. */
+export function copyRepoEnv(env: RompEnv, repo: string, worktree: string): void {
+	let data: Buffer;
+	try {
+		data = fs.readFileSync(repoEnvFile(env, repo));
+	} catch {
+		return;
+	}
+	writeFileAtomic(path.join(worktree, ".env"), data, 0o600);
+}
+
+/** Store this user's `.env` for `repo` and refresh it in their existing task worktrees. */
+export async function setRepoEnv(env: RompEnv, name: string, data: Uint8Array): Promise<RepoInfo> {
+	readSettings(env, name);
+	const dir = repoEnvDir(env);
+	ensureDir(dir, 0o700);
+	fs.chmodSync(dir, 0o700);
+	writeFileAtomic(repoEnvFile(env, name), data, 0o600);
+	if (fs.existsSync(cloneDir(env, name))) {
+		await withRepoLock(env, name, async () => {
+			ensureCloneExcludes(cloneDir(env, name));
+			for (const slug of taskSlugs(env, name)) {
+				const wt = worktreeDir(env, name, slug);
+				if (fs.existsSync(wt)) copyRepoEnv(env, name, wt);
+			}
+		});
+	}
+	return getRepo(env, name);
+}
+
+/** Forget this user's `.env` for `repo`. Copies already in worktrees stay. */
+export async function clearRepoEnv(env: RompEnv, name: string): Promise<RepoInfo> {
+	readSettings(env, name);
+	fs.rmSync(repoEnvFile(env, name), { force: true });
 	return getRepo(env, name);
 }
 
@@ -284,7 +438,7 @@ export async function initRoot(env: RompEnv, group = "romp"): Promise<string[]> 
 }
 
 /** Fetch refspecs for a user clone: the integration branch and the user's own task branches. */
-const cloneRefspecs = (env: RompEnv, branch: string) => [
+export const cloneRefspecs = (env: RompEnv, branch: string) => [
 	`+refs/heads/${branch}:refs/remotes/hub/${branch}`,
 	`+refs/heads/agent/${env.user}/*:refs/remotes/hub/agent/${env.user}/*`,
 ];
@@ -319,6 +473,7 @@ export async function ensureClone(env: RompEnv, repo: string): Promise<RepoSetti
 	for (const spec of cloneRefspecs(env, settings.branch))
 		await git(env, clone, ["config", "--local", "--add", "remote.hub.fetch", spec]);
 	await ensureMergeDriver(env, clone);
+	ensureCloneExcludes(clone);
 	await git(env, clone, ["fetch", "--prune", "-q", "hub"]);
 	return settings;
 }

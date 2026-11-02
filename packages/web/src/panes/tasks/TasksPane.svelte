@@ -9,20 +9,41 @@
 	import Skeleton from "../../lib/ui/Skeleton.svelte";
 	import { toast } from "../../lib/ui/toast.svelte";
 	import AddRepoForm from "./AddRepoForm.svelte";
+	import { pinFirst } from "./group";
 	import RepoSection from "./RepoSection.svelte";
-	import { TasksData } from "./tasksData.svelte";
+	import RepoSettingsDialog from "./RepoSettingsDialog.svelte";
+	import { lastRepo, TasksData } from "./tasksData.svelte";
 
 	let { win, pane }: { win: WindowOf<"tasks">; pane: PaneContext<"tasks"> } = $props();
 
 	// svelte-ignore state_referenced_locally
 	const data = new TasksData(pane);
 	let adding = $state(false);
+	let expanded: string | null = $state(null);
+	let settingsName: string | null = $state(null);
+	/** The remembered repo, pinned to the top once when the window opens; undefined until the first load. */
+	let pinned: string | null | undefined = $state(undefined);
 
 	$effect(() => data.start());
 
-	const repos = $derived(
+	const filtered = $derived(
 		data.repos === null ? null : win.props.repo ? data.repos.filter((r) => r.name === win.props.repo) : data.repos,
 	);
+	const repos = $derived(filtered === null ? null : pinFirst(filtered, pinned ?? null));
+	const settingsRepo = $derived(data.repos?.find((r) => r.name === settingsName) ?? null);
+
+	// Decided once, on the first load: later polls and clicks never reorder the list.
+	$effect.pre(() => {
+		if (pinned !== undefined || filtered === null) return;
+		const last = lastRepo.get();
+		pinned = last !== null && filtered.some((r) => r.name === last) ? last : null;
+		expanded = pinned ?? (filtered.length === 1 ? filtered[0]!.name : null);
+	});
+
+	function toggle(name: string) {
+		expanded = expanded === name ? null : name;
+		if (expanded) lastRepo.set(expanded);
+	}
 
 	function openAgent(agentId: string, cwd: string) {
 		if (!shell.focusWhere((w) => w.kind === "agent" && w.props.agentId === agentId)) {
@@ -32,7 +53,17 @@
 
 	function added(name: string) {
 		adding = false;
+		expanded = name;
+		lastRepo.set(name);
 		toast({ message: `Added ${name}`, tone: "success" });
+		void data.load();
+	}
+
+	function deleted(name: string) {
+		settingsName = null;
+		if (expanded === name) expanded = null;
+		lastRepo.forget(name);
+		data.dropRepo(name);
 		void data.load();
 	}
 </script>
@@ -58,7 +89,14 @@
 				<Button size="sm" icon={Icons.Add} onclick={() => (adding = true)}>Add repo</Button>
 			</header>
 			{#each repos as repo (repo.name)}
-				<RepoSection {repo} {data} onagent={openAgent} />
+				<RepoSection
+					{repo}
+					{data}
+					expanded={expanded === repo.name}
+					ontoggle={() => toggle(repo.name)}
+					onsettings={() => (settingsName = repo.name)}
+					onagent={openAgent}
+				/>
 			{/each}
 		</div>
 	{/if}
@@ -67,6 +105,10 @@
 <Dialog bind:open={adding} title="Add repo">
 	<AddRepoForm onadded={(r) => added(r.name)} oncancel={() => (adding = false)} />
 </Dialog>
+
+{#if settingsRepo}
+	<RepoSettingsDialog repo={settingsRepo} {data} onclose={() => (settingsName = null)} ondeleted={deleted} />
+{/if}
 
 <style>
 	.tasks {
@@ -84,5 +126,6 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		padding-block-end: var(--sp-2);
 	}
 </style>

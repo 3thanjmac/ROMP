@@ -1,9 +1,9 @@
-import type { FsEntry, FsFile, FsList, FsOpRequest, FsOpResult, FsWriteResult } from "@romp/protocol";
+import { type FsEntry, type FsFile, type FsList, type FsOpRequest, type FsOpResult, type FsWriteResult, MAX_UPLOAD_BYTES } from "@romp/protocol";
 import type { Stats } from "node:fs";
 import { constants } from "node:fs";
-import { cp, lstat, mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { chmod, cp, link, lstat, mkdir, open, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { badRequest, conflict, notFound, requireString } from "./http.ts";
+import { badRequest, conflict, notFound, requireString, tooLarge } from "./http.ts";
 import type { Roots } from "./paths.ts";
 import { errnoCode, newId, writeFileAtomic } from "./util.ts";
 
@@ -16,6 +16,9 @@ function entryKind(st: Stats): FsEntry["kind"] {
 	if (st.isFile()) return "file";
 	return "other";
 }
+
+/** Name of an upload's temporary file while its bytes stream in (see `upload`). */
+const UPLOAD_TMP = /^\.romp-upload-[0-9a-f]+\.tmp$/;
 
 export class Files {
 	/** `~/.local/share/romp/trash`. */
@@ -33,6 +36,7 @@ export class Files {
 		const names = await readdir(dir);
 		const entries: FsEntry[] = [];
 		for (const name of names) {
+			if (UPLOAD_TMP.test(name)) continue; // an upload still streaming in; it appears under its real name when done
 			const path = join(dir, name);
 			let st: Stats;
 			try {
@@ -105,6 +109,55 @@ export class Files {
 			after = await stat(path);
 		}
 		return { path, mtimeMs: after.mtimeMs, size: after.size };
+	}
+
+	/**
+	 * Streams `body` into `name` inside directory `dirInput`: bytes go to a temp file next to the target that is
+	 * renamed into place once complete, and removed on any failure (too large, aborted, conflict). `declared` is the
+	 * request's content-length, when it sent one; a body that ends short of it was cut off.
+	 */
+	async upload(
+		dirInput: unknown,
+		name: string,
+		overwrite: boolean,
+		body: ReadableStream<Uint8Array> | null,
+		declared: number | null,
+		limit = MAX_UPLOAD_BYTES,
+	): Promise<FsWriteResult> {
+		if (!name || name === "." || name === ".." || /[/\\\0]/.test(name)) throw badRequest(`Invalid file name: ${JSON.stringify(name)}`);
+		if (Buffer.byteLength(name) > 255) throw badRequest("File name too long");
+		if (declared !== null && declared > limit) throw tooLarge(limit);
+		const dir = await this.roots.resolve(this.roots.logical(dirInput));
+		if (!(await stat(dir)).isDirectory()) throw badRequest(`${dir} is not a directory`);
+		const target = join(dir, name);
+		const existing = await lstatOrNull(target);
+		if (existing && !overwrite) throw conflict(`${name} already exists`);
+		if (existing?.isDirectory()) throw badRequest(`${target} is a directory`);
+		const tmp = join(dir, `.romp-upload-${newId()}.tmp`);
+		const file = await open(tmp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o666);
+		try {
+			let size = 0;
+			try {
+				if (body) {
+					for await (const chunk of body) {
+						size += chunk.byteLength;
+						if (size > limit) throw tooLarge(limit);
+						await file.write(chunk);
+					}
+				}
+			} finally {
+				await file.close();
+			}
+			if (declared !== null && size !== declared) throw badRequest("The upload ended before the whole file arrived");
+			if (existing?.isFile()) await chmod(tmp, existing.mode & 0o7777);
+			if (overwrite) await rename(tmp, target);
+			else await placeNew(tmp, target, name);
+		} catch (err) {
+			await rm(tmp, { force: true });
+			throw err;
+		}
+		const after = await stat(target);
+		return { path: target, mtimeMs: after.mtimeMs, size: after.size };
 	}
 
 	async op(req: FsOpRequest): Promise<FsOpResult> {
@@ -190,6 +243,31 @@ async function move(from: string, to: string): Promise<void> {
 		await cp(from, to, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true, errorOnExist: true, force: false });
 		await rm(from, { recursive: true, force: true });
 	}
+}
+
+async function lstatOrNull(path: string): Promise<Stats | null> {
+	try {
+		return await lstat(path);
+	} catch (err) {
+		if (errnoCode(err) === "ENOENT") return null;
+		throw err;
+	}
+}
+
+/** Moves `tmp` to `target` without replacing a file that appeared meanwhile: hard link (fails on EEXIST), then unlink. */
+async function placeNew(tmp: string, target: string, name: string): Promise<void> {
+	try {
+		await link(tmp, target);
+	} catch (err) {
+		const code = errnoCode(err);
+		if (code === "EEXIST") throw conflict(`${name} already exists`);
+		// Filesystems without hard links: accept the small check-then-rename race.
+		if (code !== "EPERM" && code !== "ENOTSUP" && code !== "EOPNOTSUPP") throw err;
+		if (await lstatOrNull(target)) throw conflict(`${name} already exists`);
+		await rename(tmp, target);
+		return;
+	}
+	await rm(tmp, { force: true });
 }
 
 /** Validates a `POST /api/fs/op` body. */

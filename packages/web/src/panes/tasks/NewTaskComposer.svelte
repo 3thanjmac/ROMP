@@ -1,52 +1,79 @@
 <script lang="ts">
-	import type { RepoInfo } from "@romp/protocol";
+	import { autoTitle, type LandMode, type RepoInfo } from "@romp/protocol";
 	import { api, errorMessage } from "../../lib/api";
+	import { Icons } from "../../lib/icons";
 	import AsyncButton from "../../lib/ui/AsyncButton.svelte";
 	import Button from "../../lib/ui/Button.svelte";
-	import { TITLE_MAX, titleFromPrompt } from "./group";
+	import Segmented from "../../lib/ui/Segmented.svelte";
+	import { TITLE_MAX } from "./group";
 	import type { TasksData } from "./tasksData.svelte";
 
 	interface Props {
 		repo: RepoInfo;
 		data: TasksData;
-		/** Hidden when absent (the composer is always open for a repo without tasks). */
-		oncancel?: () => void;
-		ondone: () => void;
 		/** Opens the new agent next to the tasks window. */
 		onagent: (agentId: string, cwd: string) => void;
 	}
 
-	let { repo, data, oncancel, ondone, onagent }: Props = $props();
+	let { repo, data, onagent }: Props = $props();
 
 	const STEP_MS = 2000;
+	const SAVED_MS = 2000;
+	/** Below this action-row width the landing toggle drops its labels so it stays beside Start task. */
+	const COMPACT_LAND_PX = 440;
 
 	let prompt = $state("");
 	let title = $state("");
-	let titleEdited = $state(false);
 	let error: string | null = $state(null);
 	let pendingLabel = $state("Creating worktree…");
 	let touched = $state(false);
+	let saved = $state(false);
+	let savedTimer: number | undefined;
+	let actionsWidth = $state(0);
 
-	$effect(() => {
-		if (!titleEdited) title = titleFromPrompt(prompt);
-	});
+	const suggested = $derived(autoTitle(prompt));
+	const hasDraft = $derived(prompt.trim() !== "" || title.trim() !== "");
+
+	const landOptions = $derived([
+		{ value: "push" as LandMode, label: `Push to ${repo.branch}`, icon: Icons.LandPush },
+		{ value: "pr" as LandMode, label: "Pull request", icon: Icons.LandPr },
+	]);
+
+	async function setLand(land: LandMode) {
+		clearTimeout(savedTimer);
+		saved = false;
+		if (await data.setLand(repo, land)) {
+			saved = true;
+			savedTimer = window.setTimeout(() => (saved = false), SAVED_MS);
+		}
+	}
+
+	function clear() {
+		prompt = "";
+		title = "";
+		touched = false;
+		error = null;
+	}
 
 	async function start() {
 		touched = true;
-		if (!prompt.trim() || !title.trim()) return;
+		const text = prompt.trim();
+		if (!text) return;
+		const typed = title.trim();
 		error = null;
 		pendingLabel = "Creating worktree…";
 		const step = window.setTimeout(() => (pendingLabel = "Starting agent…"), STEP_MS);
 		try {
-			const created = await api.tasks.create({ repo: repo.name, title: title.trim(), prompt: prompt.trim() });
+			const created = await api.tasks.create({
+				repo: repo.name,
+				title: typed || autoTitle(text),
+				prompt: text,
+				autoTitle: !typed,
+			});
 			data.tasks = [...data.tasks, created.task];
 			if (created.agent) onagent(created.agent.id, created.agent.cwd);
 			void data.load();
-			prompt = "";
-			title = "";
-			titleEdited = false;
-			touched = false;
-			ondone();
+			clear();
 		} catch (err) {
 			error = errorMessage(err);
 		} finally {
@@ -67,13 +94,25 @@
 		></textarea>
 	</label>
 	<label>
-		Title
-		<input bind:value={title} required maxlength={TITLE_MAX} oninput={() => (titleEdited = true)} aria-invalid={touched && !title.trim()} />
+		<span>Title <span class="subtle">(optional)</span></span>
+		<input bind:value={title} maxlength={TITLE_MAX} placeholder={suggested || "Generated from the prompt"} />
 	</label>
 	{#if error}<p class="field-error">{error}</p>{/if}
-	<div class="actions">
-		{#if oncancel}<Button variant="ghost" onclick={oncancel}>Cancel</Button>{/if}
-		<AsyncButton variant="primary" action={start} {pendingLabel}>Start task</AsyncButton>
+	<div class="actions" bind:clientWidth={actionsWidth}>
+		<div class="land">
+			<Segmented
+				label="Landing mode for {repo.name}"
+				options={landOptions}
+				value={repo.land}
+				iconOnly={actionsWidth > 0 && actionsWidth < COMPACT_LAND_PX}
+				onchange={setLand}
+			/>
+			{#if saved}<span class="meta saved" role="status">Saved</span>{/if}
+		</div>
+		<div class="buttons">
+			{#if hasDraft}<Button variant="ghost" onclick={clear}>Cancel</Button>{/if}
+			<AsyncButton variant="primary" action={start} {pendingLabel}>Start task</AsyncButton>
+		</div>
 	</div>
 </form>
 
@@ -82,7 +121,6 @@
 		display: grid;
 		gap: var(--sp-3);
 		padding: var(--sp-3);
-		margin-block: var(--sp-2);
 		background: var(--surface-2);
 		border: var(--border);
 		border-radius: var(--radius-lg);
@@ -93,7 +131,26 @@
 	}
 	.actions {
 		display: flex;
-		justify-content: flex-end;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
 		gap: var(--sp-2);
+	}
+	.land,
+	.buttons {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-2);
+	}
+	.buttons {
+		margin-inline-start: auto;
+	}
+	.saved {
+		animation: fade var(--dur-enter) var(--ease);
+	}
+	@keyframes fade {
+		from {
+			opacity: 0;
+		}
 	}
 </style>

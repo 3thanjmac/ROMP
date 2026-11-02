@@ -3,20 +3,37 @@ import path from "node:path";
 import type { TaskInfo, TaskStatus } from "@romp/protocol";
 import {
 	cloneDir,
+	hubDir,
 	isRepoName,
 	isSlug,
 	landRef,
+	repoEnvFile,
+	repoLogsDir,
 	type RompEnv,
+	settingsFile,
+	statusDir,
 	statusFile,
 	taskBranch,
 	taskMetaDir,
+	workDir,
 	worktreeDir,
 } from "./env.ts";
 import { RompError } from "./errors.ts";
 import { ensureDir, readJsonFile, writeFileAtomic } from "./fsutil.ts";
 import { filesWithMarkers, mergeInProgress, unmergedFiles } from "./merge.ts";
 import { git, gitOut, revParse } from "./proc.ts";
-import { ensureClone, type RepoSettings, readSettings, withRepoLock } from "./repos.ts";
+import {
+	cloneRefspecs,
+	copyRepoEnv,
+	ensureClone,
+	hubGit,
+	type RepoSettings,
+	readSettings,
+	requireHubWritable,
+	taskSlugs,
+	withQueueIdle,
+	withRepoLock,
+} from "./repos.ts";
 import { readLanding } from "./status.ts";
 
 /** Per-task bookkeeping in `~/romp/<repo>.git/romp/<slug>.json`. */
@@ -115,6 +132,7 @@ export async function createTask(
 			`refs/remotes/hub/${settings.branch}`,
 		]);
 		writeMeta(env, repo, slug, { title, createdAt: Date.now(), shippedHead: null });
+		copyRepoEnv(env, repo, worktreeDir(env, repo, slug));
 		return taskInfo(env, repo, slug, settings);
 	});
 }
@@ -183,18 +201,22 @@ export async function listTasks(env: RompEnv): Promise<TaskInfo[]> {
 		} catch {
 			continue;
 		}
-		let metas: string[];
-		try {
-			metas = fs.readdirSync(taskMetaDir(env, repo)).filter((f) => f.endsWith(".json"));
-		} catch {
-			continue;
-		}
-		if (metas.length === 0) continue;
-		await git(env, cloneDir(env, repo), ["fetch", "--prune", "-q", "hub"], { allowFail: true });
+		const slugs = taskSlugs(env, repo);
+		if (slugs.length === 0) continue;
+		// Explicit refspecs: the clone's configured ones still name the old branch until `ensureClone` runs after a switch.
+		await git(env, cloneDir(env, repo), ["fetch", "--prune", "-q", "hub", ...cloneRefspecs(env, settings.branch)], {
+			allowFail: true,
+		});
 		const infos = await Promise.all(
-			metas.map((f) => f.slice(0, -5)).filter(isSlug).map((slug) => taskInfo(env, repo, slug, settings)),
+			slugs.map((slug) =>
+				taskInfo(env, repo, slug, settings).catch((err: unknown) => {
+					// The repo or task was removed while listing.
+					if (!fs.existsSync(settingsFile(env, repo)) || readMeta(env, repo, slug) === null) return null;
+					throw err;
+				}),
+			),
 		);
-		out.push(...infos.sort((a, b) => a.createdAt - b.createdAt));
+		out.push(...infos.filter((t) => t !== null).sort((a, b) => a.createdAt - b.createdAt));
 	}
 	return out;
 }
@@ -202,6 +224,17 @@ export async function listTasks(env: RompEnv): Promise<TaskInfo[]> {
 export async function getTask(env: RompEnv, repo: string, slug: string): Promise<TaskInfo> {
 	requireMeta(env, repo, slug);
 	return taskInfo(env, repo, slug, readSettings(env, repo));
+}
+
+/** Change a task's title; its slug and branch keep the name they were created with. */
+export async function renameTask(env: RompEnv, repo: string, slug: string, title: string): Promise<void> {
+	requireMeta(env, repo, slug);
+	const trimmed = title.trim();
+	if (!trimmed) throw new RompError("bad_request", "A task needs a title");
+	await withRepoLock(env, repo, async () => {
+		const meta = requireMeta(env, repo, slug);
+		writeMeta(env, repo, slug, { ...meta, title: trimmed });
+	});
 }
 
 /** Remove the worktree, the local and hub task branches, any pending landing and the status file. */
@@ -226,4 +259,44 @@ export async function removeTask(env: RompEnv, repo: string, slug: string): Prom
 		fs.rmSync(statusFile(env, repo, env.user, slug), { force: true });
 		fs.rmSync(metaFile(env, repo, slug), { force: true });
 	});
+}
+
+/** Users other than `env.user` with task branches (`agent/<user>/...`) in the repo's hub. */
+async function otherTaskOwners(env: RompEnv, name: string): Promise<string[]> {
+	const out = await hubGit(env, name, ["for-each-ref", "--format=%(refname)", "refs/heads/agent/"]);
+	const users = new Set<string>();
+	for (const ref of out.stdout.split("\n")) {
+		const user = ref.split("/")[3];
+		if (user && user !== env.user) users.add(user);
+	}
+	return [...users].sort();
+}
+
+/**
+ * Delete a repo for everyone. Refused while another user has task branches in the hub or a landing is pending.
+ * Removes this user's tasks, clone, worktrees and `.env`, then the hub, settings, status, queue work dir and logs.
+ * Returns the slugs of the removed tasks.
+ */
+export async function removeRepo(env: RompEnv, name: string): Promise<string[]> {
+	readSettings(env, name);
+	requireHubWritable(env);
+	const slugs = taskSlugs(env, name);
+	await withQueueIdle(env, name, "removing it", async () => {
+		const owners = await otherTaskOwners(env, name);
+		if (owners.length > 0)
+			throw new RompError("conflict", `${owners.join(", ")} still ${owners.length === 1 ? "has" : "have"} tasks in ${name}`);
+		for (const slug of slugs) await removeTask(env, name, slug);
+		await withRepoLock(env, name, async () => {
+			fs.rmSync(cloneDir(env, name), { recursive: true, force: true });
+			fs.rmSync(path.join(env.workRoot, name), { recursive: true, force: true });
+		});
+		fs.rmSync(repoEnvFile(env, name), { force: true });
+		// Out of the way in one step, so a failed delete below leaves no half-removed hub behind.
+		const doomed = path.join(env.root, "hub", `.removed-${name}-${process.pid}-${Date.now()}`);
+		if (fs.existsSync(hubDir(env, name))) fs.renameSync(hubDir(env, name), doomed);
+		fs.rmSync(settingsFile(env, name), { force: true });
+		for (const dir of [statusDir(env, name), workDir(env, name), repoLogsDir(env, name), doomed])
+			fs.rmSync(dir, { recursive: true, force: true });
+	});
+	return slugs;
 }

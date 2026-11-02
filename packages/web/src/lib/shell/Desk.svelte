@@ -42,7 +42,9 @@
 		const el = track.querySelector<HTMLElement>(`[data-slot="${CSS.escape(id)}"]`);
 		if (!el) return;
 		if (carousel) {
-			if (Math.abs(track.scrollLeft - el.offsetLeft) > 1) track.scrollTo({ left: el.offsetLeft, behavior });
+			if (touching) return;
+			const index = ws.windows.findIndex((w) => w.id === id);
+			if (Math.abs(track.scrollLeft - index * track.clientWidth) > 1) slideTo(index, behavior === "smooth" ? SLIDE_MS : 0);
 		} else {
 			el.scrollIntoView({ inline: "nearest", block: "nearest", behavior });
 		}
@@ -64,19 +66,128 @@
 		};
 	}
 
-	let settleTimer: number | undefined;
-	function settled() {
+	// Opening or closing a window changes the scroll width without a scroll event; the page control reads this.
+	$effect(() => {
+		void ws.windows.length;
+		void active;
+		measureView();
+	});
+
+	// The phone carousel pages itself instead of using CSS scroll snap: the browser's snap animation is slow and
+	// its duration can't be set. The finger still drags the native scroller; on release the momentum is cut
+	// (overflow hidden while `sliding`) and a timed ease-out lands on the next or nearest page.
+	/** Release-to-rest time of a carousel swipe. */
+	const SLIDE_MS = 280;
+	/** Release speed (px/ms) that pages in the swipe's direction however far the finger moved. */
+	const FLICK_SPEED = 0.3;
+	/** Scroll samples older than this at release don't count toward the flick speed. */
+	const SAMPLE_MS = 100;
+
+	let touching = false;
+	let sliding = $state(false);
+	let slideFrame = 0;
+	let startPage = 0;
+	let samples: Array<{ t: number; x: number }> = [];
+
+	function stopSlide() {
+		cancelAnimationFrame(slideFrame);
+		sliding = false;
+	}
+
+	/** Eases the carousel to page `index` over `ms`, then focuses that window. */
+	function slideTo(index: number, ms: number) {
+		if (!track) return;
+		stopSlide();
+		const el = track;
+		const from = el.scrollLeft;
+		const to = Math.max(0, Math.min(ws.windows.length - 1, index)) * el.clientWidth;
+		if (ms <= 0 || Math.abs(to - from) < 1) {
+			el.scrollLeft = to;
+			focusPage();
+			return;
+		}
+		sliding = true;
+		const t0 = performance.now();
+		const step = (now: number) => {
+			const p = Math.min(1, (now - t0) / ms);
+			el.scrollLeft = from + (to - from) * (1 - (1 - p) ** 3);
+			if (p < 1) {
+				slideFrame = requestAnimationFrame(step);
+				return;
+			}
+			sliding = false;
+			focusPage();
+		};
+		slideFrame = requestAnimationFrame(step);
+	}
+
+	function focusPage() {
 		if (!carousel || !track) return;
-		const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
-		const win = ws.windows[i];
+		const win = ws.windows[Math.round(track.scrollLeft / Math.max(1, track.clientWidth))];
 		if (win && win.id !== ws.focusedId) shell.focus(win.id);
+	}
+
+	function ontouchstart() {
+		if (!carousel || !track) return;
+		touching = true;
+		stopSlide();
+		startPage = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+		samples = [];
+	}
+
+	function ontouchend(e: TouchEvent) {
+		if (!touching || e.touches.length > 0 || !track) return;
+		touching = false;
+		const width = Math.max(1, track.clientWidth);
+		const pos = track.scrollLeft / width;
+		if (Math.abs(pos - startPage) * width < 1) return;
+		const now = performance.now();
+		const recent = samples.filter((s) => now - s.t <= SAMPLE_MS);
+		const first = recent[0];
+		const last = recent.at(-1);
+		const speed = first && last && last.t > first.t ? (last.x - first.x) / (last.t - first.t) : 0;
+		const target = speed > FLICK_SPEED ? Math.floor(pos) + 1 : speed < -FLICK_SPEED ? Math.ceil(pos) - 1 : Math.round(pos);
+		slideTo(Math.max(startPage - 1, Math.min(startPage + 1, target)), viewport.reducedMotion ? 0 : SLIDE_MS);
+	}
+
+	let settleTimer: number | undefined;
+	/** A scroll the carousel didn't drive (trackpad, wheel, keyboard) came to rest: page it too. */
+	function settled() {
+		if (!carousel || !track || touching || sliding) return;
+		const pos = track.scrollLeft / Math.max(1, track.clientWidth);
+		if (Math.abs(pos - Math.round(pos)) * track.clientWidth > 1) {
+			slideTo(Math.round(pos), viewport.reducedMotion ? 0 : SLIDE_MS);
+		} else {
+			focusPage();
+		}
 	}
 	function onscroll() {
 		measureView();
-		if (!carousel) return;
+		if (!carousel || !track) return;
+		if (touching) {
+			samples.push({ t: performance.now(), x: track.scrollLeft });
+			if (samples.length > 8) samples.shift();
+		}
 		clearTimeout(settleTimer);
 		settleTimer = window.setTimeout(settled, 120);
 	}
+
+	// Passive listeners on the track: they only observe the swipe, the finger still scrolls natively.
+	$effect(() => {
+		const el = track;
+		if (!el) return;
+		const opts = { passive: true };
+		el.addEventListener("touchstart", ontouchstart, opts);
+		el.addEventListener("touchend", ontouchend, opts);
+		el.addEventListener("touchcancel", ontouchend, opts);
+		return () => {
+			el.removeEventListener("touchstart", ontouchstart);
+			el.removeEventListener("touchend", ontouchend);
+			el.removeEventListener("touchcancel", ontouchend);
+			stopSlide();
+			clearTimeout(settleTimer);
+		};
+	});
 </script>
 
 <div class="desk" class:tile hidden={!active} data-workspace={ws.id}>
@@ -84,6 +195,7 @@
 		class="track"
 		class:tile
 		class:carousel
+		class:sliding
 		bind:this={track}
 		{onscroll}
 		onscrollend={settled}
@@ -142,12 +254,13 @@
 		}
 		&.carousel {
 			gap: 0;
-			scroll-snap-type: x mandatory;
 			scrollbar-width: none;
 			> .slot {
 				width: 100%;
-				scroll-snap-align: start;
-				scroll-snap-stop: always;
+			}
+			/* Cuts the native momentum while the release animation runs; scrollLeft still moves the strip. */
+			&.sliding {
+				overflow-x: hidden;
 			}
 		}
 		&.tile {

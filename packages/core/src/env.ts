@@ -42,6 +42,9 @@ export const cloneDir = (env: RompEnv, repo: string) => path.join(env.workRoot, 
 export const worktreeDir = (env: RompEnv, repo: string, slug: string) => path.join(env.workRoot, repo, slug);
 /** Per-user lock serializing work on one repo's clone and worktrees. */
 export const workRootLock = (env: RompEnv, repo: string) => path.join(env.workRoot, `.${repo}.lock`);
+/** Per-user `.env` uploads, copied into every new task worktree of the repo. */
+export const repoEnvDir = (env: RompEnv) => path.join(env.home, ".config", "romp", "env");
+export const repoEnvFile = (env: RompEnv, repo: string) => path.join(repoEnvDir(env), `${repo}.env`);
 export const taskMetaDir = (env: RompEnv, repo: string) => path.join(cloneDir(env, repo), "romp");
 export const taskBranch = (env: RompEnv, slug: string) => `agent/${env.user}/${slug}`;
 export const landRef = (user: string, slug: string) => `refs/heads/land/${user}/${slug}`;

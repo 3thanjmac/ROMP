@@ -16,7 +16,7 @@ import { ensureDir, readJsonFile, SHARED_DIR_MODE, tailText, tryWithLock, writeF
 import { LandError, landCommit } from "./land.ts";
 import { configureHubRemote, isLocalUrl, readSettings, repoNames, type RepoSettings } from "./repos.ts";
 import { git, gitOut, revParse } from "./proc.ts";
-import { writeLanding } from "./status.ts";
+import { queueLock, writeLanding } from "./status.ts";
 
 export interface Job {
 	repo: string;
@@ -202,7 +202,7 @@ async function processJob(env: RompEnv, job: Job): Promise<"landed" | "failed" |
  */
 async function drainRepo(env: RompEnv, repo: string): Promise<number> {
 	ensureDir(path.join(env.root, "work"), SHARED_DIR_MODE);
-	const result = await tryWithLock(path.join(env.root, "work", `.${repo}.lock`), async () => {
+	const result = await tryWithLock(queueLock(env, repo), async () => {
 		let handled = 0;
 		for (;;) {
 			let claimed = listJobs(env, "processing").find((j) => j.job.repo === repo)?.file ?? null;
@@ -242,7 +242,7 @@ export async function syncAll(env: RompEnv, log: (line: string) => void): Promis
 		try {
 			const settings = readSettings(env, repo);
 			if (!settings.remote) continue;
-			await tryWithLock(path.join(env.root, "work", `.${repo}.lock`), async () => {
+			await tryWithLock(queueLock(env, repo), async () => {
 				const work = await ensureWork(env, repo, settings);
 				await syncUpstream(env, work, settings, log);
 			});

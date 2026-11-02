@@ -164,3 +164,17 @@ test("an omp that exits before ready reports its stderr and closes 4503 instead 
 	]);
 	expect(a.snapshots()).toEqual([]);
 });
+
+test("setTitle renames the agent, tells clients, and names the OMP session", async () => {
+	const agent = makeAgent("a5");
+	const a = new FakeSocket();
+	agent.attach(a.socket);
+	await a.until(() => a.snapshots().length > 0, "snapshot");
+	await agent.setTitle("Fix the login flow");
+	expect(agent.info().title).toBe("Fix the login flow");
+	expect(agent.toRecord().title).toBe("Fix the login flow");
+	expect(a.messages.some((m) => m.t === "info" && m.info.title === "Fix the login flow")).toBe(true);
+	await agent.rpc(a.socket, "s", { type: "get_state" });
+	await a.until(() => a.response("s") !== undefined, "state");
+	expect(a.response("s")).toMatchObject({ success: true, data: { sessionName: "Fix the login flow" } });
+});

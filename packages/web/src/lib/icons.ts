@@ -56,6 +56,7 @@ import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import Trash2 from "@lucide/svelte/icons/trash-2";
 import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
 import Undo2 from "@lucide/svelte/icons/undo-2";
+import Upload from "@lucide/svelte/icons/upload";
 import Users from "@lucide/svelte/icons/users";
 import WifiOff from "@lucide/svelte/icons/wifi-off";
 import Wrench from "@lucide/svelte/icons/wrench";
@@ -126,6 +127,8 @@ export const Icons = {
 	Home: House,
 	Minimize: Minus,
 	Settings,
+	Branch: GitBranch,
+	Upload,
 } satisfies Record<string, IconComponent>;
 
 export const KIND_ICON: Record<WindowKind, IconComponent> = {

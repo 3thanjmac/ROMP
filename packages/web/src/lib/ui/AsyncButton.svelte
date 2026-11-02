@@ -4,6 +4,7 @@
 	import { Icons, type IconComponent } from "../icons";
 	import type { ButtonSize, ButtonVariant } from "./Button.svelte";
 	import Icon from "./Icon.svelte";
+	import { tooltip } from "./tooltip";
 
 	interface Props extends HTMLButtonAttributes {
 		/** Runs on click; the button disables itself and shows a spinner until it settles. Errors propagate. */
@@ -15,6 +16,8 @@
 		variant?: ButtonVariant;
 		size?: ButtonSize;
 		icon?: IconComponent;
+		/** Unavailable but focusable (aria-disabled), with the reason as a tooltip; clicks are swallowed. */
+		disabledReason?: string | null;
 		children?: Snippet;
 	}
 
@@ -25,13 +28,18 @@
 		variant = "primary",
 		size = "md",
 		icon,
+		disabledReason = null,
 		children,
 		disabled,
 		type = "button",
 		...rest
 	}: Props = $props();
 
-	async function run() {
+	async function run(e: MouseEvent) {
+		if (disabledReason) {
+			e.preventDefault();
+			return;
+		}
 		if (!action || pending) return;
 		pending = true;
 		try {
@@ -49,7 +57,10 @@
 	data-size={size}
 	disabled={disabled || pending}
 	aria-busy={pending}
-	onclick={action ? run : rest.onclick}
+	aria-disabled={disabledReason ? "true" : rest["aria-disabled"]}
+	data-unavailable={disabledReason ? "" : undefined}
+	onclick={action || disabledReason ? run : rest.onclick}
+	use:tooltip={disabledReason ?? undefined}
 >
 	{#if pending}
 		<Icon icon={Icons.Spinner} size={size === "sm" ? "sm" : "md"} spin />
@@ -58,3 +69,10 @@
 	{/if}
 	{#if pending && pendingLabel}{pendingLabel}{:else}{@render children?.()}{/if}
 </button>
+
+<style>
+	[data-unavailable] {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+</style>

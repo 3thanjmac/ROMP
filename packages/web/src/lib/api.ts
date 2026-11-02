@@ -17,8 +17,10 @@ import type {
 	PushEndpoint,
 	PushSubscriptionInput,
 	RepoAdd,
+	RepoBranches,
 	RepoInfo,
 	RepoSettingsUpdate,
+	RepoSuggestion,
 	ShellState,
 	TaskCreate,
 	TaskCreated,
@@ -83,30 +85,72 @@ export async function request<T>(method: string, path: string, body?: unknown, s
 		net.reportDown();
 		throw new ApiFailure(0, UNREACHABLE);
 	}
-	const text = await res.text();
+	return settle<T>(res.status, res.statusText, await res.text());
+}
+
+/** Turns a finished response into its parsed body, or throws the matching ApiFailure. */
+function settle<T>(status: number, statusText: string, text: string): T {
 	let parsed: unknown;
 	try {
 		parsed = text ? JSON.parse(text) : undefined;
 	} catch {
 		parsed = undefined;
 	}
-	if (res.ok) {
+	if (status >= 200 && status < 300) {
 		net.reportUp();
 		return parsed as T;
 	}
 	if (isApiError(parsed)) {
 		net.reportUp();
-		if (res.status === 401 && parsed.error === "login_required") signIn.required = true;
-		throw new ApiFailure(res.status, parsed);
+		if (status === 401 && parsed.error === "login_required") signIn.required = true;
+		throw new ApiFailure(status, parsed);
 	}
 	// A non-JSON 5xx comes from a proxy in front of a gateway that is down (tailscale serve, or Vite in dev).
-	if (res.status >= 500) {
+	if (status >= 500) {
 		net.reportDown();
 		throw new ApiFailure(0, UNREACHABLE);
 	}
-	throw new ApiFailure(res.status, {
-		error: `http_${res.status}`,
-		message: `The gateway answered ${res.status} ${res.statusText}.`.replace(" .", "."),
+	throw new ApiFailure(status, {
+		error: `http_${status}`,
+		message: `The gateway answered ${status} ${statusText}.`.replace(" .", "."),
+	});
+}
+
+export interface UploadOptions {
+	/** Bytes sent so far and the total, as the browser reports them. */
+	onprogress?: (sent: number, total: number) => void;
+	signal?: AbortSignal;
+}
+
+/**
+ * PUTs raw bytes as application/octet-stream. XMLHttpRequest rather than fetch because only it reports upload
+ * progress. An abort rejects with a DOMException named AbortError.
+ */
+export function upload<T>(method: string, path: string, body: Blob, opts: UploadOptions = {}): Promise<T> {
+	const cancelled = () => new DOMException("Upload cancelled", "AbortError");
+	// Executor form: the web build targets es2023, which has no Promise.withResolvers (Safari < 17.4).
+	return new Promise<T>((resolve, reject) => {
+		if (opts.signal?.aborted) return reject(cancelled());
+		const xhr = new XMLHttpRequest();
+		const abort = () => xhr.abort();
+		xhr.open(method, path);
+		xhr.setRequestHeader("content-type", "application/octet-stream");
+		xhr.upload.onprogress = (e) => opts.onprogress?.(e.loaded, e.lengthComputable ? e.total : body.size);
+		xhr.onload = () => {
+			try {
+				resolve(settle<T>(xhr.status, xhr.statusText, xhr.responseText));
+			} catch (err) {
+				reject(err);
+			}
+		};
+		xhr.onerror = () => {
+			net.reportDown();
+			reject(new ApiFailure(0, UNREACHABLE));
+		};
+		xhr.onabort = () => reject(cancelled());
+		xhr.onloadend = () => opts.signal?.removeEventListener("abort", abort);
+		opts.signal?.addEventListener("abort", abort);
+		xhr.send(body);
 	});
 }
 
@@ -147,6 +191,14 @@ export const api = {
 		write: (req: FsWriteRequest) => request<FsWriteResult>("PUT", "/api/fs/write", req),
 		op: (req: FsOpRequest) => request<FsOpResult>("POST", "/api/fs/op", req),
 		rawUrl: (path: string) => `/api/fs/raw?path=${q(path)}`,
+		/** Uploads `file` into directory `dir` as `name`; 409 `conflict` when it exists unless `overwrite`. */
+		upload: (dir: string, file: Blob, name: string, overwrite = false, opts?: UploadOptions) =>
+			upload<FsWriteResult>(
+				"PUT",
+				`/api/fs/upload?path=${q(dir)}&name=${q(name)}${overwrite ? "&overwrite=1" : ""}`,
+				file,
+				opts,
+			),
 	},
 
 	terms: {
@@ -166,6 +218,13 @@ export const api = {
 		add: (req: RepoAdd) => request<RepoInfo>("POST", "/api/repos", req),
 		settings: (name: string, patch: RepoSettingsUpdate) =>
 			request<RepoInfo>("PUT", `/api/repos/${q(name)}/settings`, patch),
+		branches: (name: string, signal?: AbortSignal) =>
+			request<RepoBranches>("GET", `/api/repos/${q(name)}/branches`, undefined, signal),
+		setEnv: (name: string, file: Blob) => upload<RepoInfo>("PUT", `/api/repos/${q(name)}/env`, file),
+		clearEnv: (name: string) => request<RepoInfo>("DELETE", `/api/repos/${q(name)}/env`),
+		remove: (name: string) => request<undefined>("DELETE", `/api/repos/${q(name)}`),
+		search: (query: string, signal?: AbortSignal) =>
+			request<RepoSuggestion[]>("GET", `/api/repos/search?q=${q(query)}`, undefined, signal),
 	},
 
 	tasks: {

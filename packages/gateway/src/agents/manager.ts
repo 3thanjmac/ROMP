@@ -102,6 +102,20 @@ export class AgentManager {
 		await Promise.all(ids.map((id) => this.remove(id)));
 	}
 
+	/** Removes every agent working in a task worktree of a repo that was deleted. */
+	async removeForRepo(repo: string): Promise<void> {
+		const ids = [...this.agents.values()].filter((agent) => agent.task?.repo === repo).map((agent) => agent.id);
+		await Promise.all(ids.map((id) => this.remove(id)));
+	}
+
+	/** Retitles an agent and its OMP session; false when it no longer exists. */
+	async rename(id: string, title: string): Promise<boolean> {
+		const agent = this.agents.get(id);
+		if (!agent) return false;
+		await agent.setTitle(title);
+		return true;
+	}
+
 	/** Stops every OMP process but keeps the records so the next gateway resumes them. */
 	async shutdown(): Promise<void> {
 		await Promise.all([...this.agents.values()].map((agent) => agent.close(1001, "gateway shutting down")));

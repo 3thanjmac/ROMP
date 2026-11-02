@@ -7,6 +7,7 @@
 	import MenuSection from "../ui/MenuSection.svelte";
 	import { tooltip } from "../ui/tooltip";
 	import { paneStatuses } from "./pane.svelte";
+	import PageControl from "./PageControl.svelte";
 	import { shell } from "./shell.svelte";
 	import { frameUi } from "./ui.svelte";
 
@@ -16,6 +17,7 @@
 </script>
 
 <nav class="bottombar" aria-label="Shell">
+	<PageControl />
 	<Menu label="Workspaces" placement="top-start">
 		{#snippet trigger(props)}
 			<button {...props} class="item ws">
@@ -55,6 +57,7 @@
 
 <style>
 	.bottombar {
+		position: relative;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;

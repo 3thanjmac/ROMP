@@ -76,11 +76,8 @@ export function toErrorResponse(err: unknown): Response {
  * `application/json`, which a cross-site form or `no-cors` fetch cannot send without a CORS preflight.
  */
 export async function readJson(req: Request, limit: number): Promise<Record<string, unknown>> {
-	const declared = Number(req.headers.get("content-length") ?? 0);
-	if (declared > limit) throw tooLarge(limit);
-	const buf = await req.arrayBuffer();
+	const buf = await readBody(req, limit);
 	if (buf.byteLength === 0) return {};
-	if (buf.byteLength > limit) throw tooLarge(limit);
 	if (!/^application\/json\s*(;|$)/i.test(req.headers.get("content-type") ?? "")) {
 		throw new HttpError(415, "unsupported_media_type", "Request bodies must be application/json");
 	}
@@ -94,8 +91,39 @@ export async function readJson(req: Request, limit: number): Promise<Record<stri
 	return value;
 }
 
-function tooLarge(limit: number): HttpError {
-	return new HttpError(413, "too_large", `Request body exceeds ${Math.round(limit / 1024)} KiB`);
+/**
+ * Rejects (415) a raw upload that is not `application/octet-stream`; like the JSON check above, this keeps
+ * cross-site forms (multipart, text/plain) out.
+ */
+export function requireOctetStream(req: Request): void {
+	if (!/^application\/octet-stream\s*(;|$)/i.test(req.headers.get("content-type") ?? "")) {
+		throw new HttpError(415, "unsupported_media_type", "Uploads must be application/octet-stream");
+	}
+}
+
+/** Reads a raw `application/octet-stream` body of at most `limit` bytes. */
+export async function readBytes(req: Request, limit: number): Promise<Uint8Array> {
+	requireOctetStream(req);
+	return readBody(req, limit);
+}
+
+/** Buffers the body, failing with 413 as soon as it passes `limit` (a chunked body declares no length). */
+async function readBody(req: Request, limit: number): Promise<Uint8Array> {
+	if (Number(req.headers.get("content-length") ?? 0) > limit) throw tooLarge(limit);
+	if (!req.body) return new Uint8Array(0);
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	for await (const chunk of req.body) {
+		size += chunk.byteLength;
+		if (size > limit) throw tooLarge(limit);
+		chunks.push(chunk);
+	}
+	return Buffer.concat(chunks, size);
+}
+
+export function tooLarge(limit: number): HttpError {
+	const size = limit >= 1024 * 1024 ? `${Math.round(limit / (1024 * 1024))} MiB` : `${Math.round(limit / 1024)} KiB`;
+	return new HttpError(413, "too_large", `Request body exceeds ${size}`);
 }
 
 export function requireString(body: Record<string, unknown>, key: string): string {

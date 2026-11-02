@@ -3,7 +3,7 @@
 	import { untrack } from "svelte";
 	import { api, ApiFailure, errorMessage } from "../../lib/api";
 	import { net } from "../../lib/conn/net.svelte";
-	import { joinPath, tildify } from "../../lib/format";
+	import { basename, joinPath, tildify } from "../../lib/format";
 	import { Icons } from "../../lib/icons";
 	import type { PaneContext } from "../../lib/shell/pane.svelte";
 	import { session } from "../../lib/shell/session.svelte";
@@ -11,6 +11,7 @@
 	import Banner from "../../lib/ui/Banner.svelte";
 	import Button from "../../lib/ui/Button.svelte";
 	import EmptyState from "../../lib/ui/EmptyState.svelte";
+	import Icon from "../../lib/ui/Icon.svelte";
 	import IconButton from "../../lib/ui/IconButton.svelte";
 	import Skeleton from "../../lib/ui/Skeleton.svelte";
 	import { toast } from "../../lib/ui/toast.svelte";
@@ -18,6 +19,8 @@
 	import { entryIcon, isImage } from "./fileKind";
 	import FileRow from "./FileRow.svelte";
 	import NameInput from "./NameInput.svelte";
+	import UploadRow from "./UploadRow.svelte";
+	import { UploadQueue } from "./uploads.svelte";
 
 	let { win, pane }: { win: WindowOf<"files">; pane: PaneContext<"files"> } = $props();
 
@@ -180,18 +183,112 @@
 		renaming = null;
 		draft = { kind, name: "", error: null };
 	}
+
+	let picker: HTMLInputElement | undefined = $state();
+	const canUpload = $derived(!!listing && !net.offline);
+
+	// Uploads landing while a refresh is in flight fold into one more refresh after it.
+	let refreshing = false;
+	let refreshAgain = false;
+	async function refreshAfterUpload() {
+		if (refreshing) {
+			refreshAgain = true;
+			return;
+		}
+		refreshing = true;
+		try {
+			do {
+				refreshAgain = false;
+				await load(path, true);
+			} while (refreshAgain);
+		} finally {
+			refreshing = false;
+		}
+	}
+
+	const uploads = new UploadQueue({
+		existing: (dir) => (listing?.path === dir ? listing.entries.map((e) => e.name) : []),
+		uploaded: (dir) => {
+			if (dir === path) void refreshAfterUpload();
+		},
+		finished: (count, name) => toast(count === 1 ? `Uploaded ${name}` : `Uploaded ${count} files`),
+	});
+	// Uploads keep running across navigation; closing the pane cancels them.
+	$effect(() => () => uploads.abortAll());
+
+	const here = $derived(uploads.items.filter((u) => u.dir === path));
+	const elsewhere = $derived(uploads.items.length - here.length);
+
+	function picked(e: Event & { currentTarget: HTMLInputElement }) {
+		const input = e.currentTarget;
+		if (input.files) uploads.add(Array.from(input.files), path);
+		// Cleared so picking the same file again still fires change.
+		input.value = "";
+	}
+
+	/** dragenter/dragleave fire for every child the pointer crosses; the depth says when the drag really left. */
+	let dragDepth = $state(0);
+	const dropping = $derived(dragDepth > 0 && canUpload);
+	const isFileDrag = (e: DragEvent) => e.dataTransfer?.types.includes("Files") ?? false;
+
+	function dragenter(e: DragEvent) {
+		if (!isFileDrag(e)) return;
+		e.preventDefault();
+		dragDepth++;
+	}
+
+	function dragover(e: DragEvent) {
+		if (!isFileDrag(e) || !e.dataTransfer) return;
+		// Also keeps the browser from opening a file dropped here while uploads are unavailable.
+		e.preventDefault();
+		e.dataTransfer.dropEffect = canUpload ? "copy" : "none";
+	}
+
+	function dragleave(e: DragEvent) {
+		if (isFileDrag(e) && dragDepth > 0) dragDepth--;
+	}
+
+	function drop(e: DragEvent) {
+		if (!isFileDrag(e) || !e.dataTransfer) return;
+		e.preventDefault();
+		dragDepth = 0;
+		if (!canUpload) return;
+		const files: File[] = [];
+		let folders = 0;
+		for (const item of e.dataTransfer.items) {
+			if (item.kind !== "file") continue;
+			if (item.webkitGetAsEntry?.()?.isDirectory) {
+				folders++;
+				continue;
+			}
+			const file = item.getAsFile();
+			if (file) files.push(file);
+		}
+		if (folders > 0) toast("Folders can't be uploaded yet");
+		uploads.add(files, path);
+	}
 </script>
 
 <div class="files">
 	<div class="toolbar">
 		<Breadcrumbs {path} {home} onnavigate={navigate} />
+		<IconButton size="bar" label="Upload files" icon={Icons.Upload} disabled={!canUpload} onclick={() => picker?.click()} />
 		<IconButton size="bar" label="New file" icon={Icons.FilePlus} disabled={!listing} onclick={() => startDraft("file")} />
 		<IconButton size="bar" label="New folder" icon={Icons.FolderPlus} disabled={!listing} onclick={() => startDraft("dir")} />
+		<input bind:this={picker} class="sr-only" type="file" multiple tabindex="-1" aria-hidden="true" onchange={picked} />
 	</div>
 	{#if listing && net.offline}
 		<Banner tone="neutral" icon={Icons.Offline} text="Offline: showing the last loaded listing." />
 	{/if}
-	<div class="body">
+	<div
+		class="body"
+		data-drop={dropping ? "" : undefined}
+		role="presentation"
+		ondragenter={dragenter}
+		ondragover={dragover}
+		ondragleave={dragleave}
+		ondrop={drop}
+	>
 		{#if loading && !listing}
 			<Skeleton preset="rows" count={8} />
 		{:else if loadError || !listing}
@@ -204,6 +301,14 @@
 				{/snippet}
 			</EmptyState>
 		{:else}
+			{#if dropping}
+				<p class="drop-hint"><Icon icon={Icons.Upload} />Drop to upload to {path === home ? "~" : basename(path)}</p>
+			{/if}
+			{#if elsewhere > 0}
+				<p class="elsewhere meta">
+					{elsewhere === 1 ? "1 upload in another folder" : `${elsewhere} uploads in other folders`}
+				</p>
+			{/if}
 			{#if draft}
 				<NameInput
 					icon={entryIcon({ name: draft.name, kind: draft.kind })}
@@ -214,15 +319,26 @@
 					oncancel={() => (draft = null)}
 				/>
 			{/if}
-			{#if listing.entries.length === 0 && !draft}
+			{#if listing.entries.length === 0 && !draft && here.length === 0}
 				<EmptyState icon={Icons.Folder} title="This folder is empty">
 					{#snippet actions()}
+						<Button icon={Icons.Upload} disabled={!canUpload} onclick={() => picker?.click()}>Upload files</Button>
 						<Button icon={Icons.FilePlus} onclick={() => startDraft("file")}>New file</Button>
 						<Button icon={Icons.FolderPlus} onclick={() => startDraft("dir")}>New folder</Button>
 					{/snippet}
 				</EmptyState>
 			{:else}
 				<ul class="list">
+					{#each here as item (item.id)}
+						<UploadRow
+							{item}
+							oncancel={() => uploads.cancel(item.id)}
+							onreplace={() => uploads.replace(item.id)}
+							onkeepboth={() => uploads.keepBoth(item.id)}
+							onretry={() => uploads.retry(item.id)}
+							ondismiss={() => uploads.dismiss(item.id)}
+						/>
+					{/each}
 					{#if listing.parent}
 						<li class="up">
 							<button onclick={() => navigate(listing!.parent!)}><span class="meta">..</span></button>
@@ -274,6 +390,22 @@
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
+		&[data-drop] {
+			outline: var(--edge-w) solid var(--accent);
+			outline-offset: calc(-1 * var(--edge-w));
+		}
+	}
+	.drop-hint {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-2);
+		min-height: var(--row-h);
+		padding-inline: var(--sp-3);
+		color: var(--accent);
+		background: var(--accent-soft);
+	}
+	.elsewhere {
+		padding: var(--sp-1) var(--sp-3);
 	}
 	.list {
 		padding: 0 0 var(--sp-2);

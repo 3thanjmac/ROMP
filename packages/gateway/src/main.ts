@@ -1,13 +1,16 @@
 #!/usr/bin/env bun
 import { rompEnv, taskForPath } from "@romp/core";
+import { MAX_UPLOAD_BYTES } from "@romp/protocol";
 import { realpathSync } from "node:fs";
 import { homedir, hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import { AgentManager } from "./agents/manager.ts";
+import { ompTitleGenerator } from "./agents/title.ts";
 import { createApp } from "./app.ts";
 import { Auth } from "./auth.ts";
 import { ConfigError, loadConfig } from "./config.ts";
 import { Files } from "./files.ts";
+import { RepoSearch } from "./github.ts";
 import { passwd } from "./passwd.ts";
 import { Roots } from "./paths.ts";
 import { PushService } from "./push.ts";
@@ -60,6 +63,8 @@ async function main(): Promise<void> {
 		sessions,
 		push,
 		romp,
+		titles: ompTitleGenerator(cfg.omp),
+		repoSearch: new RepoSearch(),
 	});
 
 	const server = Bun.serve<WsData>({
@@ -67,6 +72,8 @@ async function main(): Promise<void> {
 		port: cfg.listen.port,
 		// Proxied dev servers may hold a request open (SSE, long polling); 255 s is Bun's maximum.
 		idleTimeout: 255,
+		// Room for `/api/fs/upload`, which streams to disk and enforces its own limit; JSON routes keep theirs.
+		maxRequestBodySize: MAX_UPLOAD_BYTES + 1024 * 1024,
 		fetch: app.fetch,
 		websocket: app.websocket,
 	});

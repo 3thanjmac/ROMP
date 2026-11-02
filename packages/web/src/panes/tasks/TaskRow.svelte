@@ -44,7 +44,7 @@
 		<div class="left">
 			<div class="line">
 				<TaskStatusChip status={task.status} />
-				<span class="title truncate">{task.title}</span>
+				<span class="title truncate" use:tooltip={task.title}>{task.title}</span>
 			</div>
 			{#if task.status === "conflict" && conflictLine}
 				<span class="meta truncate">{conflictLine}</span>

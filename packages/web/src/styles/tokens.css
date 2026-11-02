@@ -100,6 +100,12 @@
 	--violet-soft: oklch(from var(--violet) l c h / 0.16);
 	--info-soft: oklch(from var(--info) l c h / 0.16);
 	--active-line: oklch(from var(--surface-2) l c h / 0.6);
+	/* Phone page control; the iOS variant mirrors UIPageControl's white dots on a blurred capsule. */
+	--page-capsule: oklch(from var(--surface-2) l c h / 0.85);
+	--page-capsule-ios: oklch(0 0 0 / 0.28);
+	--page-dot-ios: oklch(1 0 0);
+	--page-dot-ios-dim: oklch(1 0 0 / 0.35);
+	--page-blur: 12px;
 
 	--ansi-bright-black: oklch(from var(--ansi-black) calc(l + 0.08) c h);
 	--ansi-bright-red: oklch(from var(--ansi-red) calc(l + 0.08) c h);
@@ -217,6 +223,7 @@
 	--bubble-max-w: 85%;
 	--composer-max-h: 12lh;
 	--task-field-min-h: 3lh;
+	--upload-info-min: 12rem;
 
 	/* Safe areas and visual viewport (viewport.svelte.ts overwrites the last three at runtime) */
 	--safe-top: env(safe-area-inset-top, 0px);

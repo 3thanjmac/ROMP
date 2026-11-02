@@ -13,6 +13,8 @@
 		/** The panel element while open. */
 		panel?: HTMLElement | null;
 		onkeydown?: (e: KeyboardEvent) => void;
+		/** Size the panel to the anchor's width (autocomplete lists under an input). */
+		matchWidth?: boolean;
 		children: Snippet;
 	}
 
@@ -25,6 +27,7 @@
 		ondismiss,
 		panel = $bindable(null),
 		onkeydown,
+		matchWidth = false,
 		children,
 	}: Props = $props();
 
@@ -55,6 +58,7 @@
 	<div
 		popover="manual"
 		class="popover"
+		class:match={matchWidth}
 		{role}
 		aria-label={label}
 		tabindex="-1"
@@ -81,5 +85,9 @@
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-md);
 		outline: none;
+	}
+	.match {
+		width: var(--anchor-w);
+		min-width: 0;
 	}
 </style>

@@ -1,31 +1,40 @@
 import {
 	addRepo,
+	clearRepoEnv,
 	createTask,
 	listRepos,
 	listTasks,
 	readGitIdentity,
+	removeRepo,
 	removeTask,
+	renameTask,
+	repoBranches,
 	type RompEnv,
+	setRepoEnv,
 	shipTask,
 	updateRepoSettings,
 	writeGitIdentity,
 } from "@romp/core";
-import type {
-	AgentClientMsg,
-	GitIdentity,
-	ListeningPort,
-	Me,
-	PushConfig,
-	TaskCreated,
-	TermClientMsg,
+import {
+	type AgentClientMsg,
+	type GitIdentity,
+	type ListeningPort,
+	MAX_ENV_BYTES,
+	type Me,
+	type PushConfig,
+	type TaskCreated,
+	type TaskInfo,
+	type TermClientMsg,
 } from "@romp/protocol";
 import type { Server, WebSocketHandler } from "bun";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 import type { AgentManager } from "./agents/manager.ts";
+import type { TitleGenerator } from "./agents/title.ts";
 import { type Auth, crossOriginError, type Identity } from "./auth.ts";
 import type { GatewayConfig } from "./config.ts";
 import { type Files, parseFsOp } from "./files.ts";
+import type { RepoSearch } from "./github.ts";
 import {
 	HttpError,
 	badRequest,
@@ -34,8 +43,10 @@ import {
 	noContent,
 	notFound,
 	optionalString,
+	readBytes,
 	readJson,
 	requireInt,
+	requireOctetStream,
 	requireString,
 	toErrorResponse,
 } from "./http.ts";
@@ -48,7 +59,7 @@ import { type LanSessions, sessionCookie, sessionCookieName } from "./sessions.t
 import { MAX_STATE_BYTES, type ShellStateStore } from "./shellstate.ts";
 import { serveStatic } from "./static.ts";
 import type { TerminalManager } from "./terminals.ts";
-import { isRecord } from "./util.ts";
+import { errorMessage, isRecord } from "./util.ts";
 import type { Socket, WsData } from "./ws.ts";
 
 const isApiPath = (pathname: string) => pathname === "/api" || pathname.startsWith("/api/");
@@ -68,6 +79,9 @@ export interface AppDeps {
 	sessions: LanSessions;
 	push: PushService;
 	romp: RompEnv;
+	/** Background titles for tasks created with `autoTitle`. */
+	titles: TitleGenerator;
+	repoSearch: RepoSearch;
 }
 
 interface Ctx {
@@ -328,6 +342,14 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 		}
 		return new Response(file, { headers });
 	});
+	router.on("PUT", "/api/fs/upload", async (ctx) => {
+		requireOctetStream(ctx.req);
+		const name = query(ctx, "name");
+		if (name === null) throw badRequest(`"name" is required`);
+		const length = ctx.req.headers.get("content-length");
+		const declared = length === null || !/^\d+$/.test(length) ? null : Number(length);
+		return json(await files.upload(query(ctx, "path"), name, query(ctx, "overwrite") === "1", ctx.req.body, declared));
+	});
 
 	// ── Agents ──
 	router.on("GET", "/api/agents", () => json(agents.list()));
@@ -370,6 +392,8 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 
 	// ── Repos & tasks ──
 	router.on("GET", "/api/repos", async () => json(await listRepos(romp)));
+	// A repo named "search" can still be deleted: only GET is taken here, and no GET /api/repos/:name exists.
+	router.on("GET", "/api/repos/search", async (ctx) => json(await deps.repoSearch.search(query(ctx, "q") ?? "")));
 	router.on("POST", "/api/repos", async ({ req }) => {
 		const body = await readJson(req, SMALL_BODY);
 		const add = {
@@ -379,6 +403,12 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 		};
 		return json(await addRepo(romp, add), 201);
 	});
+	router.on("DELETE", "/api/repos/:name", async (_ctx, { name = "" }) => {
+		await removeRepo(romp, name);
+		await agents.removeForRepo(name);
+		return noContent();
+	});
+	router.on("GET", "/api/repos/:name/branches", async (_ctx, { name = "" }) => json(await repoBranches(romp, name)));
 	router.on("PUT", "/api/repos/:name/settings", async ({ req }, { name = "" }) => {
 		const body = await readJson(req, SMALL_BODY);
 		const update: Parameters<typeof updateRepoSettings>[2] = {};
@@ -392,18 +422,29 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 			if (value !== null && typeof value !== "string") throw badRequest(`"${key}" must be a string or null`);
 			update[key] = value === "" ? null : value;
 		}
+		if (body.branch !== undefined) update.branch = requireString(body, "branch");
 		return json(await updateRepoSettings(romp, name, update));
 	});
+	router.on("PUT", "/api/repos/:name/env", async ({ req }, { name = "" }) =>
+		json(await setRepoEnv(romp, name, await readBytes(req, MAX_ENV_BYTES))),
+	);
+	router.on("DELETE", "/api/repos/:name/env", async (_ctx, { name = "" }) => json(await clearRepoEnv(romp, name)));
 	router.on("GET", "/api/tasks", async () => json(await listTasks(romp)));
 	router.on("POST", "/api/tasks", async ({ req }) => {
 		const body = await readJson(req, SMALL_BODY);
 		const prompt = optionalString(body, "prompt")?.trim();
+		if (body.autoTitle !== undefined && typeof body.autoTitle !== "boolean") throw badRequest(`"autoTitle" must be true or false`);
 		const task = await createTask(romp, {
 			repo: requireString(body, "repo"),
 			title: requireString(body, "title"),
 			slug: optionalString(body, "slug") || undefined,
 		});
 		const agent = prompt ? agents.create(await requireDir(roots, task.path), task.title, prompt).info() : null;
+		if (body.autoTitle && prompt && agent) {
+			retitle(task, agent.id, prompt).catch((err: unknown) =>
+				console.warn(`titling ${task.repo}/${task.slug}: ${errorMessage(err)}`),
+			);
+		}
 		return json({ task, agent } satisfies TaskCreated, 201);
 	});
 	router.on("POST", "/api/tasks/:repo/:slug/ship", async ({ req }, { repo = "", slug = "" }) => {
@@ -415,6 +456,18 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 		await agents.removeForTask(repo, slug);
 		return noContent();
 	});
+
+	/** Names a new task (and its agent and OMP session) after a model-written title, keeping the slug. */
+	async function retitle(task: TaskInfo, agentId: string, prompt: string): Promise<void> {
+		const title = await deps.titles(task.path, prompt);
+		if (!title) {
+			console.warn(`titling ${task.repo}/${task.slug}: no title generated; keeping "${task.title}"`);
+			return;
+		}
+		if (title === task.title) return;
+		await renameTask(romp, task.repo, task.slug, title);
+		await agents.rename(agentId, title);
+	}
 
 	return router;
 }

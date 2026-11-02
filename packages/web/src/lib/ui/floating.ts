@@ -21,8 +21,9 @@ export function place(anchor: Element, panel: HTMLElement, placement: Placement,
 				shift({ padding: EDGE_PAD }),
 				size({
 					padding: EDGE_PAD,
-					apply({ availableHeight, elements }) {
+					apply({ availableHeight, elements, rects }) {
 						elements.floating.style.setProperty("--available-h", `${Math.max(0, availableHeight)}px`);
+						elements.floating.style.setProperty("--anchor-w", `${rects.reference.width}px`);
 					},
 				}),
 			],

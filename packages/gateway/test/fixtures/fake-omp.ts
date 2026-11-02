@@ -8,6 +8,7 @@ let sessionFile = join(dir, `session-${process.pid}.json`);
 let messages: unknown[] = [];
 let busy = false;
 let v2 = false;
+let sessionName: string | undefined;
 
 function emit(frame: object): void {
 	const json = JSON.stringify(frame);
@@ -72,8 +73,11 @@ function handle(cmd: Record<string, unknown>): void {
 			messages = JSON.parse(readFileSync(path, "utf8"));
 			return respond(cmd, { cancelled: false });
 		}
+		case "set_session_name":
+			sessionName = String(cmd.name);
+			return respond(cmd, {});
 		case "get_state":
-			return respond(cmd, { sessionFile, isStreaming: busy });
+			return respond(cmd, { sessionFile, isStreaming: busy, sessionName });
 		case "get_messages_page":
 			return respond(cmd, { messages, totalMessages: messages.length });
 		case "get_messages":

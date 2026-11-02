@@ -169,6 +169,22 @@ export class Agent {
 		this.broadcast({ t: "frame", frame: response as RpcFrame });
 	}
 
+	/** Renames the agent (persisted, broadcast) and, when OMP is running, its session. Naming failures are only logged. */
+	async setTitle(title: string): Promise<void> {
+		if (this.record.title === title) return;
+		this.record.title = title;
+		this.host.persist();
+		this.broadcastInfo();
+		if (this.closed || !this.proc || this.exited) return;
+		try {
+			if (this.starting) await this.starting;
+			if (this.closed || this.exited) return;
+			await this.command({ type: "set_session_name", name: title });
+		} catch (err) {
+			console.warn(`agent ${this.id}: could not name the session: ${errorMessage(err)}`);
+		}
+	}
+
 	/** Disconnects every client with `code` and stops OMP. */
 	async close(code: number, reason: string): Promise<void> {
 		this.closed = true;

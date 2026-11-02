@@ -6,8 +6,8 @@ import { checkpoint, shipTask } from "../src/checkpoint.ts";
 import { type RompEnv, rompEnv } from "../src/env.ts";
 import { RompError } from "../src/errors.ts";
 import { preReceive, runOnce } from "../src/queue.ts";
-import { addRepo, initRoot, listRepos, updateRepoSettings } from "../src/repos.ts";
-import { createTask, getTask, listTasks, removeTask, taskForPath } from "../src/tasks.ts";
+import { addRepo, clearRepoEnv, initRoot, listRepos, repoBranches, setRepoEnv, updateRepoSettings } from "../src/repos.ts";
+import { createTask, getTask, listTasks, removeRepo, removeTask, renameTask, taskForPath } from "../src/tasks.ts";
 
 const T = fs.mkdtempSync(path.join(os.tmpdir(), "romp-test-"));
 const root = path.join(T, "root");
@@ -271,5 +271,80 @@ describe("romp", () => {
 		const parsed = JSON.parse(out.stdout.toString());
 		expect(out.exitCode).toBe(3);
 		expect(parsed).toMatchObject({ status: "conflict", conflictFiles: ["value.txt"] });
+	});
+
+	test("renameTask changes the title and keeps the slug", async () => {
+		const t = await createTask(ethan, { repo: "solo", title: "Old name" });
+		await renameTask(ethan, "solo", t.slug, "  New name ");
+		expect(await getTask(ethan, "solo", t.slug)).toMatchObject({ slug: "old-name", title: "New name" });
+		await expect(renameTask(ethan, "solo", t.slug, " ")).rejects.toMatchObject({ code: "bad_request" });
+	});
+
+	test(".env: stored 0600 per user, copied into new and existing worktrees, never shows in git status", async () => {
+		await addRepo(ethan, { url: upstream, name: "envy" });
+		const before = await createTask(ethan, { repo: "envy", title: "before env", slug: "before-env" });
+		const info = await setRepoEnv(ethan, "envy", new TextEncoder().encode("SECRET=1\n"));
+		expect(info.env).toBe(true);
+		expect((await listRepos(alice)).find((r) => r.name === "envy")?.env).toBe(false);
+		const stored = path.join(ethan.home, ".config", "romp", "env", "envy.env");
+		expect(fs.statSync(stored).mode & 0o777).toBe(0o600);
+		expect(read(before.path, ".env")).toBe("SECRET=1\n");
+		const t = await createTask(ethan, { repo: "envy", title: "with env", slug: "with-env" });
+		expect(read(t.path, ".env")).toBe("SECRET=1\n");
+		expect(fs.statSync(path.join(t.path, ".env")).mode & 0o777).toBe(0o600);
+		expect(sh(t.path, "git", "status", "--porcelain").trim()).toBe("");
+		expect((await getTask(ethan, "envy", "with-env")).dirty).toBe(false);
+		await setRepoEnv(ethan, "envy", new TextEncoder().encode("SECRET=2\n"));
+		expect(read(t.path, ".env")).toBe("SECRET=2\n");
+		expect((await clearRepoEnv(ethan, "envy")).env).toBe(false);
+		expect(read(t.path, ".env")).toBe("SECRET=2\n");
+	});
+
+	test("branches: switching to an upstream-only branch fetches it into the hub", async () => {
+		sh(T, "git", "--git-dir", upstream, "branch", "dev", "main");
+		const hub = path.join(root, "hub", "envy.git");
+		expect(await repoBranches(ethan, "envy")).toEqual({ current: "main", branches: ["main", "dev"] });
+		expect(await repoBranches(ethan, "solo")).toEqual({ current: "main", branches: ["main"] });
+		await expect(updateRepoSettings(ethan, "envy", { branch: "nope" })).rejects.toMatchObject({ code: "bad_request" });
+		await expect(updateRepoSettings(ethan, "envy", { branch: "agent/x" })).rejects.toMatchObject({ code: "bad_request" });
+		await expect(updateRepoSettings(ethan, "solo", { branch: "dev" })).rejects.toMatchObject({ code: "bad_request" });
+		const job = path.join(root, "queue", "incoming", "0-test.json");
+		fs.writeFileSync(job, JSON.stringify({ repo: "envy", user: "ethan", slug: "x", commit: "0", enqueuedAt: 0 }));
+		await expect(updateRepoSettings(ethan, "envy", { branch: "dev" })).rejects.toMatchObject({ code: "conflict" });
+		fs.rmSync(job);
+		const info = await updateRepoSettings(ethan, "envy", { branch: "dev" });
+		expect(info.branch).toBe("dev");
+		expect(sh(T, "git", "--git-dir", hub, "symbolic-ref", "HEAD").trim()).toBe("refs/heads/dev");
+		expect(sh(T, "git", "--git-dir", hub, "rev-parse", "dev").trim()).toBe(sh(T, "git", "--git-dir", upstream, "rev-parse", "dev").trim());
+		expect((await repoBranches(ethan, "envy")).branches).toEqual(["dev", "main"]);
+		const t = await createTask(ethan, { repo: "envy", title: "on dev", slug: "on-dev" });
+		expect(sh(t.path, "git", "rev-parse", "HEAD").trim()).toBe(sh(T, "git", "--git-dir", upstream, "rev-parse", "dev").trim());
+		expect((await listTasks(ethan)).find((x) => x.slug === "with-env")).toMatchObject({ ahead: 0, behind: 0 });
+		expect(fs.existsSync(path.join(root, "work", ".envy.lock"))).toBe(false);
+	});
+
+	test("removing a repo is refused while another user has task branches, then removes everything", async () => {
+		const a = await createTask(alice, { repo: "envy", title: "alice here", slug: "alice-here" });
+		write(a.path, "a.txt", "a\n");
+		await checkpoint(alice, "envy", "alice-here");
+		await expect(removeRepo(ethan, "envy")).rejects.toMatchObject({ code: "conflict" });
+		expect(fs.existsSync(path.join(root, "hub", "envy.git"))).toBe(true);
+		await removeTask(alice, "envy", "alice-here");
+		await setRepoEnv(ethan, "envy", new TextEncoder().encode("SECRET=3\n"));
+		expect((await removeRepo(ethan, "envy")).sort()).toEqual(["before-env", "on-dev", "with-env"]);
+		for (const gone of [
+			path.join(root, "hub", "envy.git"),
+			path.join(root, "repos", "envy.toml"),
+			path.join(root, "status", "envy"),
+			path.join(ethan.workRoot, "envy.git"),
+			path.join(ethan.workRoot, "envy"),
+			path.join(ethan.home, ".config", "romp", "env", "envy.env"),
+			path.join(root, "work", ".envy.lock"),
+		])
+			expect(fs.existsSync(gone)).toBe(false);
+		expect(fs.readdirSync(path.join(root, "hub")).filter((n) => n.startsWith("."))).toEqual([]);
+		expect((await listRepos(alice)).map((r) => r.name)).not.toContain("envy");
+		expect((await listTasks(alice)).map((t) => t.repo)).not.toContain("envy");
+		await expect(removeRepo(ethan, "envy")).rejects.toMatchObject({ code: "not_found" });
 	});
 });
