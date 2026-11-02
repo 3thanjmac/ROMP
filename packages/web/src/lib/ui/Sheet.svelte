@@ -200,7 +200,7 @@
 			transition-duration: var(--dur-enter);
 		}
 		&.full {
-			height: calc(var(--vvh) - var(--safe-top));
+			height: calc(var(--vvh) - var(--safe-top) - var(--sheet-full-gap));
 			max-height: none;
 		}
 		&::backdrop {

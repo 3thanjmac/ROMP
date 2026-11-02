@@ -15,6 +15,8 @@ class FrameUi {
 	renameWorkspace: string | null = $state(null);
 	/** Visible part of the active scroll strip as fractions of its scroll width (top bar minimap bracket). */
 	stripView = $state({ start: 0, end: 1 });
+	/** The phone page control is being dragged: windows switch without the carousel animation. */
+	scrubbing = $state(false);
 
 	openSettings(): void {
 		if (this.settings) return;

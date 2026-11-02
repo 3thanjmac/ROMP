@@ -55,7 +55,7 @@
 	$effect(() => {
 		void ws.windows.find((w) => w.id === ws.focusedId)?.width;
 		void carousel;
-		reveal(viewport.reducedMotion ? "instant" : "smooth");
+		reveal(viewport.reducedMotion || frameUi.scrubbing ? "instant" : "smooth");
 	});
 
 	function measureView() {
@@ -79,7 +79,11 @@
 	/** Release-to-rest time of a carousel swipe. */
 	const SLIDE_MS = 280;
 	/** Release speed (px/ms) that pages in the swipe's direction however far the finger moved. */
-	const FLICK_SPEED = 0.3;
+	const FLICK_SPEED = 0.2;
+	/** A drag this far (px) pages on release, like the old mandatory snap did, unless the finger was heading back. */
+	const PAGE_DRAG_PX = 12;
+	/** Release speed (px/ms) back toward the start that cancels a short drag. */
+	const RETURN_SPEED = 0.05;
 	/** Scroll samples older than this at release don't count toward the flick speed. */
 	const SAMPLE_MS = 100;
 
@@ -140,14 +144,17 @@
 		touching = false;
 		const width = Math.max(1, track.clientWidth);
 		const pos = track.scrollLeft / width;
-		if (Math.abs(pos - startPage) * width < 1) return;
+		const dx = (pos - startPage) * width;
+		if (Math.abs(dx) < 1) return;
 		const now = performance.now();
 		const recent = samples.filter((s) => now - s.t <= SAMPLE_MS);
 		const first = recent[0];
 		const last = recent.at(-1);
 		const speed = first && last && last.t > first.t ? (last.x - first.x) / (last.t - first.t) : 0;
-		const target = speed > FLICK_SPEED ? Math.floor(pos) + 1 : speed < -FLICK_SPEED ? Math.ceil(pos) - 1 : Math.round(pos);
-		slideTo(Math.max(startPage - 1, Math.min(startPage + 1, target)), viewport.reducedMotion ? 0 : SLIDE_MS);
+		let step = 0;
+		if (Math.abs(speed) > FLICK_SPEED) step = Math.sign(speed);
+		else if (Math.abs(dx) >= PAGE_DRAG_PX && speed * Math.sign(dx) > -RETURN_SPEED) step = Math.sign(dx);
+		slideTo(startPage + step, viewport.reducedMotion ? 0 : SLIDE_MS);
 	}
 
 	let settleTimer: number | undefined;

@@ -187,6 +187,8 @@
 	--toast-w: 22rem;
 	--chat-measure: 48rem;
 	--sheet-max-h: 85dvh;
+	/* Space a full-height sheet leaves above itself so its top edge and first row stay clear of the screen edge. */
+	--sheet-full-gap: 1.25rem;
 	--grip-w: 2rem;
 	--grip-h: 4px;
 	--tab-h: 1.75rem;
