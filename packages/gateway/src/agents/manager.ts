@@ -1,4 +1,4 @@
-import type { AgentInfo } from "@romp/protocol";
+import type { AgentInfo, AgentUsage } from "@romp/protocol";
 import { rmSync, writeFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -6,6 +6,7 @@ import { HttpError } from "../http.ts";
 import { errnoCode, errorMessage, isRecord, newId, writeFileAtomic } from "../util.ts";
 import { Agent, type AgentRecord } from "./agent.ts";
 import type { AgentNotice } from "./notices.ts";
+import { currentShares, type UsageBook, UsageTracker } from "./usage.ts";
 
 export interface AgentManagerOptions {
 	omp: string;
@@ -27,11 +28,29 @@ export class AgentManager {
 	private readonly agents = new Map<string, Agent>();
 	private readonly file: string;
 	private saving: Promise<void> = Promise.resolve();
+	private readonly usageTracker: UsageTracker;
 
 	constructor(private readonly opts: AgentManagerOptions) {
 		this.file = join(opts.stateDir, "agents.json");
 		// A marker left by a gateway that crashed mid-turn: nothing runs yet.
 		this.writeBusyFile(0);
+		this.usageTracker = new UsageTracker(opts.omp, {
+			books: () => {
+				const books = new Map<string, UsageBook>();
+				for (const agent of this.agents.values()) if (agent.usageBook) books.set(agent.id, agent.usageBook);
+				return books;
+			},
+			apply: (changed) => {
+				let any = false;
+				for (const [id, book] of changed) {
+					const agent = this.agents.get(id);
+					if (!agent) continue;
+					agent.setUsageBook(book);
+					any = true;
+				}
+				if (any) this.persist();
+			},
+		});
 	}
 
 	/** Restores persisted sessions without spawning OMP; each respawns when first used. */
@@ -50,6 +69,8 @@ export class AgentManager {
 			throw new Error(`${this.file}: ${errorMessage(err)}`);
 		}
 		for (const record of Array.isArray(parsed) ? parsed : []) {
+			// Usage shares are an estimate: a malformed book is dropped rather than the agent.
+			if (isRecord(record) && record.usage !== undefined && !isUsageBook(record.usage)) delete record.usage;
 			if (!isAgentRecord(record)) {
 				console.warn(`${this.file}: skipping malformed agent record`);
 				continue;
@@ -64,6 +85,19 @@ export class AgentManager {
 
 	get(id: string): Agent | undefined {
 		return this.agents.get(id);
+	}
+
+	/** `GET /api/agents/:id/usage`; null when the agent does not exist. Never spawns an agent's OMP. */
+	async usage(id: string): Promise<AgentUsage | null> {
+		const agent = this.agents.get(id);
+		if (!agent) return null;
+		const [limits, live] = await Promise.all([this.usageTracker.limits(), agent.usageState()]);
+		return {
+			model: live.model,
+			limits: limits.providers,
+			limitsError: limits.error,
+			chat: { stats: live.stats, shares: limits.providers ? currentShares(agent.usageBook, limits.providers) : {} },
+		};
 	}
 
 	/** `cwd` must already be a confined realpath. OMP starts right away so `prompt` runs without a client. */
@@ -118,6 +152,7 @@ export class AgentManager {
 
 	/** Stops every OMP process but keeps the records so the next gateway resumes them. */
 	async shutdown(): Promise<void> {
+		this.usageTracker.close();
 		await Promise.all([...this.agents.values()].map((agent) => agent.close(1001, "gateway shutting down")));
 		await this.saving;
 		this.writeBusyFile(0);
@@ -129,6 +164,7 @@ export class AgentManager {
 			persist: () => this.persist(),
 			busyChanged: () => this.busyChanged(),
 			notify: (notice: AgentNotice) => this.opts.notify(record, notice),
+			spent: (provider: string, usd: number) => this.usageTracker.spent(record.id, provider, usd),
 		};
 		return new Agent(record, this.opts.taskOf(record.cwd), host, prompt);
 	}
@@ -137,6 +173,8 @@ export class AgentManager {
 		let busy = 0;
 		for (const agent of this.agents.values()) if (agent.isBusy) busy++;
 		this.writeBusyFile(busy);
+		// Turn boundaries are where usage samples are taken for per-chat attribution.
+		this.usageTracker.requestSample();
 	}
 
 	private writeBusyFile(busy: number): void {
@@ -169,5 +207,17 @@ function isAgentRecord(value: unknown): value is AgentRecord {
 		typeof value.cwd === "string" &&
 		typeof value.createdAt === "number" &&
 		(value.sessionFile === null || typeof value.sessionFile === "string")
+	);
+}
+
+function isUsageBook(value: unknown): boolean {
+	return (
+		isRecord(value) &&
+		Object.values(value).every(
+			(entry) =>
+				isRecord(entry) &&
+				typeof entry.share === "number" &&
+				(entry.resetsAt === null || typeof entry.resetsAt === "number"),
+		)
 	);
 }

@@ -59,6 +59,44 @@ export function relativeTime(ms: number, now = Date.now()): string {
 	return `${Math.floor(d / 365)}y`;
 }
 
+/** Time until an account-limit window resets: "resets in <1m", "14m", "2h 14m", "6d 3h"; past due says so. */
+export function resetsIn(resetsAt: number, now = Date.now()): string {
+	const ms = resetsAt - now;
+	if (ms <= 0) return "reset due; reopen to refresh";
+	const m = Math.floor(ms / 60_000);
+	if (m < 1) return "resets in <1m";
+	if (m < 60) return `resets in ${m}m`;
+	const h = Math.floor(m / 60);
+	if (h < 48) return `resets in ${h}h ${m % 60}m`;
+	return `resets in ${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
+/** An estimated 0..1 share as an approximate percent: "≈0.3%", "≈3%", "≈42%"; "<0.1%" for tiny nonzero shares. */
+export function approxPercent(fraction: number): string {
+	const p = fraction * 100;
+	if (p > 0 && p < 0.05) return "<0.1%";
+	if (p > 0 && p < 10) return `≈${Number(p.toFixed(1))}%`;
+	return `≈${Math.round(p)}%`;
+}
+
+/** A limit window label as a compound adjective: "5 Hour" → "5-hour". */
+export function windowName(label: string): string {
+	return label.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+const USD = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" });
+const USD_PRECISE = new Intl.NumberFormat(undefined, {
+	style: "currency",
+	currency: "USD",
+	minimumFractionDigits: 2,
+	maximumFractionDigits: 4,
+});
+
+/** US dollars; `precise` keeps up to 4 fraction digits for small per-chat costs. */
+export function formatUsd(amount: number, precise = false): string {
+	return (precise ? USD_PRECISE : USD).format(amount);
+}
+
 /** Random id that works on insecure origins too (no crypto.randomUUID there). */
 export function uid(): string {
 	const bytes = crypto.getRandomValues(new Uint8Array(9));

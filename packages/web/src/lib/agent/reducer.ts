@@ -8,6 +8,7 @@
  */
 import type { AgentInfo, AgentServerMsg } from "@romp/protocol";
 import type {
+	AgentCommand,
 	AgentView,
 	AssistantItem,
 	Block,
@@ -57,6 +58,7 @@ export function emptyView(): AgentView {
 		exited: false,
 		exitCode: null,
 		startError: null,
+		commands: [],
 	};
 }
 
@@ -144,6 +146,9 @@ function snapshot(prev: AgentView, msg: Extract<AgentServerMsg, { t: "snapshot" 
 		exited: msg.info.exited,
 		exitCode: msg.info.exitCode,
 		startError: null,
+		// OMP announces its catalog once at startup, before any client attaches; the session re-requests it after each
+		// snapshot, so the previous list stands until that answer arrives.
+		commands: prev.commands,
 	};
 	return { view, effects };
 }
@@ -732,6 +737,8 @@ function frame(view: AgentView, f: Rec & { type: string }, now: number): Step {
 			};
 		case "queue_update":
 			return { view: queueUpdate(view, f), effects: NONE };
+		case "available_commands_update":
+			return { view: { ...view, commands: readCommands(f.commands) }, effects: NONE };
 		case "auto_retry_start":
 			return {
 				view: {
@@ -790,4 +797,32 @@ function frame(view: AgentView, f: Rec & { type: string }, now: number): Step {
 		default:
 			return { view, effects: NONE };
 	}
+}
+
+/** Keeps catalog entries with a string `name` and `source`; optional fields are dropped when malformed. */
+function readCommands(raw: unknown): AgentCommand[] {
+	if (!Array.isArray(raw)) return [];
+	return raw.flatMap((entry): AgentCommand[] => {
+		if (!isRec(entry)) return [];
+		const name = str(entry.name);
+		const source = str(entry.source);
+		if (!name || source === undefined) return [];
+		const command: AgentCommand = { name, source };
+		const aliases = strings(entry.aliases);
+		if (aliases.length > 0) command.aliases = aliases;
+		const description = str(entry.description);
+		if (description) command.description = description;
+		const hint = isRec(entry.input) ? str(entry.input.hint) : undefined;
+		if (hint) command.input = { hint };
+		const subcommands = Array.isArray(entry.subcommands)
+			? entry.subcommands.flatMap(sub => {
+					const subName = isRec(sub) ? str(sub.name) : undefined;
+					if (!subName) return [];
+					const subDescription = isRec(sub) ? str(sub.description) : undefined;
+					return [subDescription ? { name: subName, description: subDescription } : { name: subName }];
+				})
+			: [];
+		if (subcommands.length > 0) command.subcommands = subcommands;
+		return [command];
+	});
 }

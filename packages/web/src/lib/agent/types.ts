@@ -30,6 +30,19 @@ export interface AgentView {
 	exitCode: number | null;
 	/** Why the gateway could not start OMP (its socket then closes as `failed`); cleared by the next snapshot. */
 	startError: string | null;
+	/** OMP's slash-command catalog (`available_commands_update`, `get_available_commands`); kept across snapshots. */
+	commands: AgentCommand[];
+}
+
+/** One entry of OMP's slash-command catalog. */
+export interface AgentCommand {
+	name: string;
+	aliases?: string[];
+	description?: string;
+	/** `hint` is display text for the argument, e.g. `[on|ultra|off|status]`. */
+	input?: { hint?: string };
+	subcommands?: { name: string; description?: string }[];
+	source: "builtin" | "skill" | "extension" | "custom" | "file" | (string & {});
 }
 
 export type Item = UserItem | AssistantItem | NoticeItem | ShellItem;

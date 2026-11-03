@@ -2,6 +2,7 @@
 import type {
 	AgentCreate,
 	AgentInfo,
+	AgentUsage,
 	ApiError,
 	FsFile,
 	FsList,
@@ -211,6 +212,8 @@ export const api = {
 		list: () => request<AgentInfo[]>("GET", "/api/agents"),
 		create: (req: AgentCreate) => request<AgentInfo>("POST", "/api/agents", req),
 		kill: (id: string) => request<unknown>("DELETE", `/api/agents/${q(id)}`),
+		/** Account limits and this chat's usage; the gateway runs `omp usage`, so call it on demand, never on a timer. */
+		usage: (id: string) => request<AgentUsage>("GET", `/api/agents/${q(id)}/usage`),
 	},
 
 	repos: {

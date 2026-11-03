@@ -217,6 +217,7 @@
 		coarse={viewport.coarse}
 		onsend={send}
 		onstop={() => void agent?.abort()}
+		commands={view?.commands ?? []}
 	/>
 
 	{#if view && Object.values(view.widgets).some(w => w.placement === "belowEditor")}
@@ -234,6 +235,7 @@
 		flex-direction: column;
 		height: 100%;
 		min-height: 0;
+		min-width: 0;
 		background: var(--surface-1);
 	}
 	.center {

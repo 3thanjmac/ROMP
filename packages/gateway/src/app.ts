@@ -363,6 +363,11 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 		if (!agent) throw notFound("Unknown agent");
 		return json(agent.info());
 	});
+	router.on("GET", "/api/agents/:id/usage", async (_ctx, { id = "" }) => {
+		const usage = await agents.usage(id);
+		if (!usage) throw notFound("Unknown agent");
+		return json(usage);
+	});
 	router.on("DELETE", "/api/agents/:id", async (_ctx, { id = "" }) => {
 		if (!(await agents.remove(id))) throw notFound("Unknown agent");
 		return noContent();

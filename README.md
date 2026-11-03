@@ -24,7 +24,7 @@ flowchart LR
   - terminal: persistent shell that survives disconnects and replays scrollback; extra-keys row on touch screens, with Select / Paste for copy and paste.
   - files: browse, create, rename, trash with undo.
   - editor: CodeMirror with autosave and conflict detection.
-  - agent: OMP chat with streaming output, tool cards, steer / follow-up / stop, and answers to the agent's questions.
+  - agent: OMP chat with streaming output, tool cards, steer / follow-up / stop, and answers to the agent's questions. Typing `/` suggests OMP's commands and skills. The gauge in the title bar shows the provider's usage limits (Claude 5-hour and 7-day) and this chat's tokens, cost, context use and estimated share of each window.
   - browser: your dev servers through `/proxy/<port>/`.
   - tasks: repos and tasks with Ship buttons.
 - **Git you don't have to touch.** A task is a git worktree plus a branch plus an agent session:
@@ -141,6 +141,7 @@ The first milestone is complete and verified on Debian 13 (WSL): every part of t
 - The terminal extra-keys row with a real phone's on-screen keyboard.
 - Overview swipe-to-close and drag-to-reorder gestures.
 - Stop sends `abort_and_restore_queue` (queued messages return to the composer); only plain `abort` was exercised live.
+- The usage popover and per-chat window shares on a real iPhone. A chat's share is estimated from turn-boundary samples split by cost across ROMP agents. Usage outside ROMP on the same account during a turn (another OMP, Claude Code, claude.ai) is counted toward that chat.
 - The web bundle is a single 1.1 MB chunk (mostly CodeMirror languages); code-splitting is still to do.
 - LAN access (`romp-lan`) on a real tailnet and router. Checked in WSL: password sign-in, sessions and lockout through a proxy account, Debian 13's Caddy accepting the generated config and stripping spoofed `Tailscale-User-*` headers, and parsing of `tailscale serve status --json`. Not checked: `tailscale cert` and `tailscale serve` themselves.
 - `romp-update` on the TrueNAS VM. Checked in WSL against a local upstream: applying, waiting for busy agents or a landing, and refusing local commits.

@@ -144,12 +144,14 @@ export class AgentSession {
 		const now = Date.now();
 		const effects: Effect[] = [];
 		let view = this.view;
+		let snapshotted = false;
 		for (const input of inbox) {
 			// An `exit` keeps the socket open: the gateway respawns OMP on the next command and sends a new snapshot.
 			if (input.t === "response") {
 				this.#pending.get(input.reqId)?.(input);
 				this.#pending.delete(input.reqId);
 			}
+			if (input.t === "snapshot") snapshotted = true;
 			const step = reduce(view, input, now);
 			view = step.view;
 			effects.push(...step.effects);
@@ -157,5 +159,13 @@ export class AgentSession {
 		this.view = view;
 		if (!view.busy) this.stopping = false;
 		for (const effect of effects) this.#onEffect(effect);
+		if (snapshotted) void this.#loadCommands();
+	}
+
+	/** OMP broadcasts `available_commands_update` at startup, before any client attaches, so ask for the catalog. */
+	async #loadCommands(): Promise<void> {
+		const result = await this.request({ type: "get_available_commands" });
+		if (!result.success || this.#disposed || !isRec(result.data)) return;
+		this.#apply({ t: "frame", frame: { type: "available_commands_update", commands: result.data.commands } });
 	}
 }

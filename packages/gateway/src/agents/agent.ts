@@ -4,6 +4,7 @@ import { errorMessage, isRecord, withTimeout } from "../util.ts";
 import { sendJson, type Socket } from "../ws.ts";
 import { ChunkDecoder, FrameError, LineSplitter, parseJson, type RpcFrame } from "./frames.ts";
 import { type AgentNotice, exitNotice, NoticeTracker } from "./notices.ts";
+import { type ChatModel, type ChatStats, parseModel, parseSessionStats, type UsageBook } from "./usage.ts";
 
 /** What survives a gateway restart. */
 export interface AgentRecord {
@@ -13,6 +14,8 @@ export interface AgentRecord {
 	createdAt: number;
 	/** OMP session file, used to `switch_session` back into the conversation after a respawn. */
 	sessionFile: string | null;
+	/** Estimated share of each account limit this chat consumed (see `UsageTracker`). Absent until a share is measured. */
+	usage?: UsageBook;
 }
 
 export interface AgentHost {
@@ -23,6 +26,8 @@ export interface AgentHost {
 	busyChanged(): void;
 	/** Called when the agent needs the user, finishes a turn, or stops unexpectedly. */
 	notify(notice: AgentNotice): void;
+	/** Called with the USD cost of each assistant message, by the provider that served it. */
+	spent(provider: string, usd: number): void;
 }
 
 interface RpcResponse {
@@ -54,6 +59,8 @@ const START_FAILED = 4503;
 const STDERR_TAIL_CHARS = 4096;
 /** How long an early exit waits for OMP's stderr to drain before reporting why it failed. */
 const STDERR_DRAIN_MS = 1_000;
+/** `GET /api/agents/:id/usage` waits this long for OMP's live stats before answering with the last ones seen. */
+const USAGE_COMMAND_TIMEOUT_MS = 5_000;
 /** `extension_ui_request` methods that wait for an `extension_ui_response`. */
 const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor", "ask"]);
 /** Commands after which the session file may have changed. */
@@ -68,6 +75,8 @@ export class Agent {
 	private starting: Promise<void> | null = null;
 	private readyFrame: PromiseWithResolvers<RpcFrame> | null = null;
 	private busy = false;
+	/** OMP finished starting and takes commands. */
+	private ready = false;
 	private exited = false;
 	private exitCode: number | null = null;
 	private closed = false;
@@ -79,6 +88,8 @@ export class Agent {
 	private readonly waiters = new Map<string, Waiter>();
 	private readonly notices = new NoticeTracker();
 	private nextId = 0;
+	private lastStats: ChatStats | null = null;
+	private lastModel: ChatModel | null = null;
 
 	constructor(
 		private readonly record: AgentRecord,
@@ -97,6 +108,27 @@ export class Agent {
 
 	toRecord(): AgentRecord {
 		return { ...this.record };
+	}
+
+	get usageBook(): UsageBook | undefined {
+		return this.record.usage;
+	}
+
+	/** Replaces the usage shares; the caller persists the records. */
+	setUsageBook(book: UsageBook): void {
+		this.record.usage = book;
+	}
+
+	/** Live session stats and model when OMP is running, else (or when it does not answer) the last ones seen. Never spawns OMP. */
+	async usageState(): Promise<{ stats: ChatStats | null; model: ChatModel | null }> {
+		if (this.ready && !this.exited && !this.closed) {
+			const ask = (type: string) =>
+				withTimeout(this.command({ type }), USAGE_COMMAND_TIMEOUT_MS, `omp did not answer ${type}`);
+			const [stats, state] = await Promise.allSettled([ask("get_session_stats"), ask("get_state")]);
+			if (stats.status === "fulfilled") this.lastStats = parseSessionStats(stats.value) ?? this.lastStats;
+			if (state.status === "fulfilled") this.noteState(state.value);
+		}
+		return { stats: this.lastStats, model: this.lastModel };
 	}
 
 	info(): AgentInfo {
@@ -204,6 +236,7 @@ export class Agent {
 			stderr: "pipe",
 		});
 		this.proc = proc;
+		this.ready = false;
 		this.exited = false;
 		this.exitCode = null;
 		this.setBusy(false);
@@ -235,6 +268,7 @@ export class Agent {
 			proc.kill("SIGKILL");
 			throw err;
 		}
+		this.ready = true;
 		this.broadcastInfo();
 	}
 
@@ -272,6 +306,7 @@ export class Agent {
 		if (this.proc !== proc) return;
 		this.starting = null;
 		this.exited = true;
+		this.ready = false;
 		this.exitCode = code;
 		this.setBusy(false);
 		this.pendingUi.clear();
@@ -325,6 +360,7 @@ export class Agent {
 				break;
 		}
 		this.broadcast({ t: "frame", frame });
+		if (frame.type === "message_end") this.noteSpend(frame.message);
 		if (frame.type === "agent_start" && !this.busy) {
 			this.setBusy(true);
 			this.broadcastInfo();
@@ -334,6 +370,17 @@ export class Agent {
 		}
 		const notice = this.notices.frame(frame);
 		if (notice) this.host.notify(notice);
+	}
+
+	/** Reports the cost of an assistant message for usage attribution. */
+	private noteSpend(message: unknown): void {
+		if (!isRecord(message) || message.role !== "assistant" || typeof message.provider !== "string") return;
+		const cost = isRecord(message.usage) && isRecord(message.usage.cost) ? message.usage.cost.total : undefined;
+		if (typeof cost === "number" && cost > 0) this.host.spent(message.provider, cost);
+	}
+
+	private noteState(state: unknown): void {
+		this.lastModel = parseModel(state) ?? this.lastModel;
 	}
 
 	get isBusy(): boolean {
@@ -405,6 +452,7 @@ export class Agent {
 
 	private async refreshSessionFile(): Promise<void> {
 		const state = await this.command({ type: "get_state" });
+		this.noteState(state);
 		const file = isRecord(state) && typeof state.sessionFile === "string" ? state.sessionFile : null;
 		if (file !== this.record.sessionFile) {
 			this.record.sessionFile = file;
@@ -439,6 +487,7 @@ export class Agent {
 		try {
 			messages = await this.transcript(startBuffering);
 			state = await this.command({ type: "get_state" });
+			this.noteState(state);
 		} catch (err) {
 			if (!this.joining.delete(ws)) return;
 			ws.close(1011, errorMessage(err).slice(0, 120));

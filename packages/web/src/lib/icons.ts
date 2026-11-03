@@ -34,6 +34,7 @@ import Folder from "@lucide/svelte/icons/folder";
 import FolderPlus from "@lucide/svelte/icons/folder-plus";
 import FolderTree from "@lucide/svelte/icons/folder-tree";
 import GalleryHorizontalEnd from "@lucide/svelte/icons/gallery-horizontal-end";
+import Gauge from "@lucide/svelte/icons/gauge";
 import GitBranch from "@lucide/svelte/icons/git-branch";
 import GitMerge from "@lucide/svelte/icons/git-merge";
 import GitPullRequest from "@lucide/svelte/icons/git-pull-request";
@@ -129,6 +130,7 @@ export const Icons = {
 	Settings,
 	Branch: GitBranch,
 	Upload,
+	Gauge,
 } satisfies Record<string, IconComponent>;
 
 export const KIND_ICON: Record<WindowKind, IconComponent> = {

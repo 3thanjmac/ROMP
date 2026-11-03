@@ -304,3 +304,40 @@ describe("process exit", () => {
 		expect(views[3]).toMatchObject({ exited: false, busy: false });
 	});
 });
+
+describe("command catalog", () => {
+	it("reads available_commands_update and keeps the catalog across a resnapshot", () => {
+		const { views } = run([
+			snapshot([]),
+			frame({
+				type: "available_commands_update",
+				commands: [
+					{ name: "model", aliases: ["models"], description: "Show current model selection", source: "builtin" },
+					{
+						name: "fast",
+						description: "Toggle fast mode",
+						input: { hint: "[on|ultra|off|status]" },
+						subcommands: [{ name: "on", description: "Enable fast mode (priority tier)" }, { nope: true }],
+						source: "builtin",
+					},
+					{ name: "broken" },
+					"junk",
+				],
+			}),
+			snapshot([]),
+		]);
+		const commands = [
+			{ name: "model", aliases: ["models"], description: "Show current model selection", source: "builtin" },
+			{
+				name: "fast",
+				description: "Toggle fast mode",
+				input: { hint: "[on|ultra|off|status]" },
+				subcommands: [{ name: "on", description: "Enable fast mode (priority tier)" }],
+				source: "builtin",
+			},
+		];
+		expect(views[0]?.commands).toEqual([]);
+		expect(views[1]?.commands).toEqual(commands);
+		expect(views[2]?.commands).toEqual(commands);
+	});
+});

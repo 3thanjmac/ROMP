@@ -11,6 +11,7 @@
 	import MenuSection from "../ui/MenuSection.svelte";
 	import Spinner from "../ui/Spinner.svelte";
 	import type { PaneStatus } from "./pane.svelte";
+	import AgentUsageButton from "./AgentUsageButton.svelte";
 	import SaveStatus from "./SaveStatus.svelte";
 	import { displayTitle, sessionOf, shell } from "./shell.svelte";
 	import { viewport } from "./viewport.svelte";
@@ -85,6 +86,7 @@
 		{#if win.kind === "terminal" || win.kind === "agent"}
 			<ClientCount count={status.clients} />
 			{#if status.conn}<ConnDot state={status.conn} exitCode={status.exitCode} />{/if}
+			{#if win.kind === "agent"}<AgentUsageButton agentId={win.props.agentId ?? null} />{/if}
 		{/if}
 		{#if showWidth}<WidthPresetButton id={win.id} width={win.width} />{/if}
 		<Menu label="Window actions" placement="bottom-end">
@@ -150,6 +152,7 @@
 	}
 	.title {
 		flex: 1;
+		min-width: 0;
 		font-size: var(--text-sm);
 		font-weight: 500;
 		user-select: none;

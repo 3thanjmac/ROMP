@@ -245,6 +245,59 @@ export interface AgentCreate {
 	prompt?: string;
 }
 
+/** `GET /api/agents/:id/usage` */
+export interface AgentUsage {
+	/** The session's current model when OMP is running (from `get_state.model`), else the last one seen, else null. */
+	model: { provider: string; id: string; name: string | null } | null;
+	/** Account limits from `omp usage --json`; null with `limitsError` set when the fetch failed. */
+	limits: UsageProvider[] | null;
+	limitsError: string | null;
+	/** This chat. `stats` is null when OMP is not running and nothing was recorded yet. */
+	chat: {
+		stats: {
+			tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+			/** USD, as OMP prices the session. */
+			cost: number;
+			context: { tokens: number; window: number; fraction: number } | null;
+		} | null;
+		/**
+		 * Estimated share of each limit window this chat consumed in the CURRENT window, keyed by `UsageLimit.id`.
+		 * Fractions of the whole limit (0..1), same scale as `UsageLimit.usedFraction`. Limits are account-wide, so the
+		 * gateway splits each increase between turn-boundary samples across chats by the USD each spent meanwhile.
+		 */
+		shares: Record<string, number>;
+	};
+}
+
+/** One provider's account limits, as `omp usage --json` reports them. */
+export interface UsageProvider {
+	/** OMP provider id, e.g. `anthropic`. */
+	provider: string;
+	/** Account email or id, if reported. */
+	account: string | null;
+	fetchedAt: number;
+	limits: UsageLimit[];
+}
+
+export interface UsageLimit {
+	/** e.g. `anthropic:5h` */
+	id: string;
+	/** OMP's label, e.g. `Claude 5 Hour`. */
+	label: string;
+	/** e.g. `5 Hour`; null for limits without a window. */
+	windowLabel: string | null;
+	/** 0..1 when known. */
+	usedFraction: number | null;
+	used: number | null;
+	limit: number | null;
+	/** `percent`, `usd`, ... as OMP reports it. */
+	unit: string;
+	/** Epoch ms; null when the window has not started or has no reset. */
+	resetsAt: number | null;
+	/** OMP's status, e.g. `ok`. */
+	status: string;
+}
+
 /**
  * Client → server on `/ws/agent/:id`.
  * `rpc` carries a raw OMP RPC command object (see oh-my-pi docs/rpc.md), e.g.
