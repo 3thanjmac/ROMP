@@ -20,7 +20,7 @@ How the ROMP web app looks and behaves, and why. The code is the reference for e
 | Tablet | 640 to 1023 px | Top bar: workspace tabs, a strip minimap (scroll mode), offline chip, scroll/tile switch, "New window" (`Alt O`), settings, avatar. |
 | Desktop | ≥ 1024 px | Same as tablet. |
 
-The app is sized from `visualViewport` (`--vvh`), not `100vh`, so the on-screen keyboard never covers the terminal's extra-keys row or the agent composer. On a phone the bottom bar hides while the keyboard is open.
+The app is sized from `visualViewport` (`--vvh`), not `100vh`, so the on-screen keyboard never covers the terminal's extra-keys row or the agent composer. On a phone the bottom bar hides while the keyboard is open. On iOS every focus that opens the keyboard is made with `preventScroll` (tapped fields included), so Safari never scrolls the page to centre the field; the field is scrolled into view inside its own container once the keyboard has resized the frame.
 
 ## Windows
 
