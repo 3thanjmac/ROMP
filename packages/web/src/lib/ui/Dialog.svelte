@@ -21,8 +21,11 @@
 	let pressedBackdrop = false;
 
 	$effect(() => {
-		if (open && !el.open) el.showModal();
-		else if (!open && el.open) el.close();
+		if (open && !el.open) {
+			el.showModal();
+			// showModal() focuses the first control; on touch that highlights it (or pops the keyboard) for no reason.
+			if (matchMedia("(pointer: coarse)").matches && el.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+		} else if (!open && el.open) el.close();
 	});
 
 	function closed() {

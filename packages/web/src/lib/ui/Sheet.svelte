@@ -50,7 +50,11 @@
 		if (open) {
 			clearTimeout(unmountTimer);
 			mounted = true;
-			if (!el.open) el.showModal();
+			if (!el.open) {
+				el.showModal();
+				// Reopened before the content unmounted, showModal() focuses its first control; don't highlight it on touch.
+				if (matchMedia("(pointer: coarse)").matches && el.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+			}
 		} else if (el.open) {
 			el.close();
 		}
