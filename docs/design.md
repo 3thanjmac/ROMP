@@ -7,7 +7,7 @@ How the ROMP web app looks and behaves, and why. The code is the reference for e
 - **Dense, dark-first developer tool.** Light theme follows `prefers-color-scheme`. Colors are OKLCH tokens; hover, pressed and soft variants are derived from them with relative color syntax rather than new literals.
 - **Phone first, not phone only.** Every control on a phone sits within thumb reach. Tablet and desktop get the same windows with more of them on screen.
 - **Never lose typed text.** Composers, editors and forms keep their content through disconnects, failed requests and reloads.
-- **One state vocabulary.** Every live window (terminal, agent) shows the same connection states: `connecting`, `live`, `reconnecting`, `offline`, `exited`, through one `ConnDot` and one `Banner`.
+- **One state vocabulary.** Every live window (terminal, agent) shows the same connection states: `connecting`, `live`, `reconnecting`, `offline`, `exited`, through one `Banner` in the window and one `ConnDot` per row in the Overview.
 - **Act, then offer Undo** instead of confirm dialogs. Closing a window ends its terminal or agent session once the Undo toast goes away; Minimize detaches the window instead, and the session keeps running under Running sessions in the Overview.
 - **Self-hosted assets only**: Inter Variable and JetBrains Mono Variable via `@fontsource-variable`, icons from `@lucide/svelte` through the local registry. No third-party CSS or font URLs.
 - Motion is short (about 150 ms state changes) and disabled under `prefers-reduced-motion`.
@@ -24,7 +24,7 @@ The app is sized from `visualViewport` (`--vvh`), not `100vh`, so the on-screen 
 
 ## Windows
 
-Every window has the same title bar in both modes: kind icon, title, then per-window badges (agent "Working" / "Needs input", editor save status), client count and connection dot for live sessions, width preset (scroll mode), a "more" menu (with Minimize for live sessions) and close. The focused window gets an accent border and a brighter title bar.
+Every window has the same title bar in both modes: kind icon, title, then per-window badges (agent "Working" / "Needs input", editor save status), client count for live sessions, the agent's model and thinking button (a popover with two scroll wheels, model and effort, that switch the session when they come to rest) and usage button (a dialog with account limits and this chat's usage as tables), width preset (scroll mode), a "more" menu (with Minimize for live sessions) and close. The focused window gets an accent border and a brighter title bar. A new task's composer has the same model and thinking button, with a "Default" entry on each wheel.
 
 - **Scroll mode** (niri-style): windows are columns on a horizontal strip, each one third, half, two thirds or full width. On a phone every column is full width and the strip snaps one column per swipe; the stored width is untouched, so the same workspace looks right on a desktop.
 - **Tile mode** (dwindle-style): windows fill a binary split tree. Split handles drag (clamped 15% to 85%), reset on double-click, and move by 5% with the arrow keys when focused.

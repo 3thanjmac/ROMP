@@ -269,6 +269,29 @@ export interface AgentUsage {
 	};
 }
 
+/** OMP's thinking effort, lowest first. `off` disables thinking. */
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+/** `GET /api/models` → `ModelOption[]`: the chat models `omp models --json` lists, in its order. */
+export interface ModelOption {
+	provider: string;
+	id: string;
+	name: string;
+	/** Efforts the model accepts besides `off`; empty when it has no thinking control. */
+	thinking: ThinkingLevel[];
+}
+
+/**
+ * A model and thinking effort to run with. Null fields keep what OMP would use (its default model, the model's default effort).
+ * `GET /api/agents/:id/thinking` → the session's current choice (never spawns OMP).
+ * `PUT /api/agents/:id/thinking` with a choice → switches the session, then reports what OMP chose.
+ */
+export interface ModelChoice {
+	model: { provider: string; id: string } | null;
+	level: ThinkingLevel | null;
+}
+
 /** One provider's account limits, as `omp usage --json` reports them. */
 export interface UsageProvider {
 	/** OMP provider id, e.g. `anthropic`. */
@@ -455,6 +478,8 @@ export interface TaskCreate {
 	 * capped by `autoTitle`. The slug keeps the first title.
 	 */
 	autoTitle?: boolean;
+	/** Model and effort for the agent's session, applied before the first prompt. */
+	thinking?: ModelChoice;
 }
 export interface TaskCreated {
 	task: TaskInfo;

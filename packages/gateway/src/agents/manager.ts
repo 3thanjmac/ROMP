@@ -1,4 +1,4 @@
-import type { AgentInfo, AgentUsage } from "@romp/protocol";
+import type { AgentInfo, AgentUsage, ModelChoice, ModelOption } from "@romp/protocol";
 import { rmSync, writeFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -6,6 +6,7 @@ import { HttpError } from "../http.ts";
 import { errnoCode, errorMessage, isRecord, newId, writeFileAtomic } from "../util.ts";
 import { Agent, type AgentRecord } from "./agent.ts";
 import type { AgentNotice } from "./notices.ts";
+import { ModelCatalog } from "./models.ts";
 import { currentShares, type UsageBook, UsageTracker } from "./usage.ts";
 
 export interface AgentManagerOptions {
@@ -29,6 +30,7 @@ export class AgentManager {
 	private readonly file: string;
 	private saving: Promise<void> = Promise.resolve();
 	private readonly usageTracker: UsageTracker;
+	private readonly catalog: ModelCatalog;
 
 	constructor(private readonly opts: AgentManagerOptions) {
 		this.file = join(opts.stateDir, "agents.json");
@@ -51,6 +53,7 @@ export class AgentManager {
 				if (any) this.persist();
 			},
 		});
+		this.catalog = new ModelCatalog(opts.omp);
 	}
 
 	/** Restores persisted sessions without spawning OMP; each respawns when first used. */
@@ -100,11 +103,22 @@ export class AgentManager {
 		};
 	}
 
-	/** `cwd` must already be a confined realpath. OMP starts right away so `prompt` runs without a client. */
-	create(cwd: string, title: string | undefined, prompt: string | undefined): Agent {
-		if (!this.opts.ompFound) {
-			throw new HttpError(503, "omp_missing", `"${this.opts.omp}" was not found on PATH; set "omp" in the gateway config`);
+	/** `GET /api/models`. */
+	models(): Promise<ModelOption[]> {
+		this.requireOmp();
+		return this.catalog.list();
+	}
+
+	/** Rejects with 400 when `choice` names a model OMP does not list. */
+	async checkChoice(choice: ModelChoice): Promise<void> {
+		if (choice.model && !(await this.catalog.has(choice.model))) {
+			throw new HttpError(400, "unknown_model", `${choice.model.provider}/${choice.model.id} is not an available model`);
 		}
+	}
+
+	/** `cwd` must already be a confined realpath. OMP starts right away so `prompt` runs without a client. */
+	create(cwd: string, title: string | undefined, prompt: string | undefined, choice?: ModelChoice): Agent {
+		this.requireOmp();
 		const record: AgentRecord = {
 			id: newId(),
 			title: title?.trim() || basename(cwd) || cwd,
@@ -112,11 +126,17 @@ export class AgentManager {
 			createdAt: Date.now(),
 			sessionFile: null,
 		};
-		const agent = this.makeAgent(record, prompt);
+		const agent = this.makeAgent(record, prompt, choice);
 		this.agents.set(record.id, agent);
 		this.persist();
 		agent.ensureRunning().catch((err: unknown) => console.error(`agent ${record.id}: ${errorMessage(err)}`));
 		return agent;
+	}
+
+	private requireOmp(): void {
+		if (!this.opts.ompFound) {
+			throw new HttpError(503, "omp_missing", `"${this.opts.omp}" was not found on PATH; set "omp" in the gateway config`);
+		}
 	}
 
 	async remove(id: string): Promise<boolean> {
@@ -158,7 +178,7 @@ export class AgentManager {
 		this.writeBusyFile(0);
 	}
 
-	private makeAgent(record: AgentRecord, prompt: string | undefined): Agent {
+	private makeAgent(record: AgentRecord, prompt: string | undefined, choice?: ModelChoice): Agent {
 		const host = {
 			omp: this.opts.omp,
 			persist: () => this.persist(),
@@ -166,7 +186,7 @@ export class AgentManager {
 			notify: (notice: AgentNotice) => this.opts.notify(record, notice),
 			spent: (provider: string, usd: number) => this.usageTracker.spent(record.id, provider, usd),
 		};
-		return new Agent(record, this.opts.taskOf(record.cwd), host, prompt);
+		return new Agent(record, this.opts.taskOf(record.cwd), host, prompt, choice);
 	}
 
 	private busyChanged(): void {

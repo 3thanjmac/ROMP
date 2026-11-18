@@ -1,19 +1,18 @@
 <script lang="ts">
 	import type { AgentUsage, UsageLimit } from "@romp/protocol";
-	import { tick, untrack } from "svelte";
+	import { untrack } from "svelte";
 	import { api, errorMessage } from "../api";
 	import { approxPercent, formatUsd, resetsIn, windowName } from "../format";
 	import { Icons } from "../icons";
 	import AsyncButton from "../ui/AsyncButton.svelte";
+	import Button from "../ui/Button.svelte";
+	import Dialog from "../ui/Dialog.svelte";
 	import IconButton from "../ui/IconButton.svelte";
-	import Popover from "../ui/Popover.svelte";
 	import Spinner from "../ui/Spinner.svelte";
 
 	let { agentId }: { agentId: string | null } = $props();
 
 	let open = $state(false);
-	let anchor = $state<HTMLElement | null>(null);
-	let panel = $state<HTMLElement | null>(null);
 
 	let usage = $state<AgentUsage | null>(null);
 	let loadError = $state<string | null>(null);
@@ -61,24 +60,9 @@
 		return req;
 	}
 
-	async function show() {
+	function show() {
 		open = true;
 		void load();
-		await tick();
-		panel?.focus({ preventScroll: true });
-	}
-
-	function hide(returnFocus: boolean) {
-		if (!open) return;
-		open = false;
-		if (returnFocus) anchor?.focus({ preventScroll: true });
-	}
-
-	function ref(node: HTMLElement) {
-		anchor = node;
-		return () => {
-			if (anchor === node) anchor = null;
-		};
 	}
 
 	const model = $derived(usage?.model ?? null);
@@ -106,13 +90,13 @@
 	const count = (n: number) => n.toLocaleString();
 
 	function limitValue(l: UsageLimit): string {
-		if (l.unit === "percent" && l.usedFraction !== null) return `${percent(l.usedFraction)}% used`;
+		if (l.unit === "percent" && l.usedFraction !== null) return `${percent(l.usedFraction)}%`;
 		if (l.used !== null) {
-			if (l.unit === "usd") return l.limit !== null ? `${formatUsd(l.used)} of ${formatUsd(l.limit)} used` : `${formatUsd(l.used)} used`;
-			return l.limit !== null ? `${count(l.used)} of ${count(l.limit)} ${l.unit} used` : `${count(l.used)} ${l.unit} used`;
+			if (l.unit === "usd") return l.limit !== null ? `${formatUsd(l.used)} of ${formatUsd(l.limit)}` : formatUsd(l.used);
+			return l.limit !== null ? `${count(l.used)} of ${count(l.limit)} ${l.unit}` : `${count(l.used)} ${l.unit}`;
 		}
-		if (l.usedFraction !== null) return `${percent(l.usedFraction)}% used`;
-		return "Usage not reported";
+		if (l.usedFraction !== null) return `${percent(l.usedFraction)}%`;
+		return "Not reported";
 	}
 </script>
 
@@ -123,207 +107,261 @@
 	disabled={!agentId}
 	aria-haspopup="dialog"
 	aria-expanded={open}
-	onclick={() => (open ? hide(false) : void show())}
-	{@attach ref}
+	onclick={show}
 />
 
-<Popover {anchor} {open} placement="bottom-end" role="dialog" label="Usage and Limits" bind:panel ondismiss={(how) => hide(how === "escape")}>
-	<div class="usage">
-		<div class="row">
-			<h2>Usage and Limits</h2>
-			{#if loading && usage}
-				<span class="busy meta" role="status"><Spinner size="sm" />Updating…</span>
-			{/if}
+<Dialog bind:open label="Usage and Limits">
+	<header class="top">
+		<Button variant="ghost" size="sm" icon={Icons.Back} onclick={() => (open = false)}>Back</Button>
+		<h2 class="truncate">Usage and Limits</h2>
+		{#if loading && usage}
+			<span class="busy meta" role="status"><Spinner size="sm" />Updating…</span>
+		{/if}
+	</header>
+
+	{#if loadError}
+		<div class="error-row">
+			<p class="field-error" role="alert">Couldn't load usage. {loadError}</p>
+			<AsyncButton size="sm" variant="secondary" action={load} pendingLabel="Checking…">Retry</AsyncButton>
 		</div>
+	{/if}
 
-		{#if loadError}
-			<div class="error-row">
-				<p class="field-error" role="alert">Couldn't load usage. {loadError}</p>
-				<AsyncButton size="sm" variant="secondary" action={load} pendingLabel="Checking…">Retry</AsyncButton>
+	{#if !usage}
+		{#if loading}
+			<p class="busy meta" role="status"><Spinner size="sm" />Checking account limits…</p>
+		{/if}
+	{:else}
+		<section>
+			<div class="heading">
+				<h3>Account limits</h3>
+				{#if model}<span class="meta truncate">{model.name ?? model.id} · {model.provider}</span>{/if}
 			</div>
-		{/if}
 
-		{#if !usage}
-			{#if loading}
-				<p class="busy meta" role="status"><Spinner size="sm" />Checking account limits…</p>
-			{/if}
-		{:else}
-			<section class="section">
-				{#if model}
-					<p class="model">
-						<span class="truncate">{model.name ?? model.id}</span>
-						<span class="meta">{model.provider}</span>
-					</p>
-				{/if}
-
-				{#if usage.limitsError !== null}
-					<div class="error-row">
-						<p class="field-error" role="alert">Couldn't load account limits. {usage.limitsError}</p>
-						<AsyncButton size="sm" variant="secondary" action={load} pendingLabel="Checking…">Retry</AsyncButton>
-					</div>
-				{:else if limits.length === 0}
-					<p class="meta">
-						{#if model}
-							No rate-limit windows are reported for {model.provider}. API-key providers may not expose them.
-						{:else}
-							No account limits are available. This chat's usage is still shown below.
-						{/if}
-					</p>
-				{:else}
+			{#if usage.limitsError !== null}
+				<div class="error-row">
+					<p class="field-error" role="alert">Couldn't load account limits. {usage.limitsError}</p>
+					<AsyncButton size="sm" variant="secondary" action={load} pendingLabel="Checking…">Retry</AsyncButton>
+				</div>
+			{:else if limits.length === 0}
+				<p class="meta">
+					{#if model}
+						No rate-limit windows are reported for {model.provider}. API-key providers may not expose them.
+					{:else}
+						No account limits are available. This chat's usage is still shown below.
+					{/if}
+				</p>
+			{:else}
+				<table>
+					<thead>
+						<tr>
+							<th scope="col">Limit</th>
+							<th scope="col" class="num" colspan="2">Used</th>
+							<th scope="col" class="num">Resets</th>
+						</tr>
+					</thead>
 					{#each providers as p (p.provider)}
-						{#if p.account || providers.length > 1}
-							<p class="meta truncate">
-								{p.provider === model?.provider ? (p.account ?? p.provider) : `${p.provider}${p.account ? ` · ${p.account}` : ""}`}
-							</p>
+						<tbody>
+							{#if p.account || providers.length > 1}
+								<tr class="group">
+									<th scope="rowgroup" colspan="4" class="meta truncate">
+										{p.provider === model?.provider ? (p.account ?? p.provider) : `${p.provider}${p.account ? ` · ${p.account}` : ""}`}
+									</th>
+								</tr>
+							{/if}
+							{#each p.limits as limit (limit.id)}
+								<tr>
+									<th scope="row">{limit.label}</th>
+									<td class="bar">
+										{#if limit.usedFraction !== null}
+											<span
+												class="track"
+												role="progressbar"
+												aria-label="{limit.label} used"
+												aria-valuemin={0}
+												aria-valuemax={100}
+												aria-valuenow={percent(limit.usedFraction)}
+											>
+												<span class="fill" style:--fraction={clamp(limit.usedFraction)}></span>
+											</span>
+										{/if}
+									</td>
+									<td class="num">{limitValue(limit)}</td>
+									<td class="num meta">{limit.resetsAt !== null ? resetsIn(limit.resetsAt) : "No reset"}</td>
+								</tr>
+							{/each}
+						</tbody>
+					{/each}
+				</table>
+			{/if}
+		</section>
+
+		<section>
+			<h3>This chat</h3>
+			{#if !stats && noShares}
+				<p class="meta">
+					No chat usage has been recorded yet. Send a message after OMP starts to see tokens, cost, and context use.
+				</p>
+			{:else}
+				<table>
+					<tbody>
+						{#if stats}
+							<tr>
+								<th scope="row">Tokens</th>
+								<td class="num">{count(stats.tokens.total)}</td>
+							</tr>
+							<tr class="sub">
+								<th scope="row">Input</th>
+								<td class="num">{count(stats.tokens.input)}</td>
+							</tr>
+							<tr class="sub">
+								<th scope="row">Output</th>
+								<td class="num">{count(stats.tokens.output)}</td>
+							</tr>
+							<tr class="sub">
+								<th scope="row">Cache read</th>
+								<td class="num">{count(stats.tokens.cacheRead)}</td>
+							</tr>
+							<tr class="sub">
+								<th scope="row">Cache write</th>
+								<td class="num">{count(stats.tokens.cacheWrite)}</td>
+							</tr>
+							<tr>
+								<th scope="row">Cost</th>
+								<td class="num">{formatUsd(stats.cost, true)}</td>
+							</tr>
+							{#if stats.context}
+								{@const ctx = stats.context}
+								<tr>
+									<th scope="row">Context</th>
+									<td class="num">
+										<span class="used">
+											<span
+												class="track"
+												role="progressbar"
+												aria-label="Context window used"
+												aria-valuemin={0}
+												aria-valuemax={100}
+												aria-valuenow={percent(ctx.fraction)}
+											>
+												<span class="fill" style:--fraction={clamp(ctx.fraction)}></span>
+											</span>
+											{percent(ctx.fraction)}% · {count(ctx.tokens)} / {count(ctx.window)}
+										</span>
+									</td>
+								</tr>
+							{/if}
 						{/if}
-						{#each p.limits as limit (limit.id)}
-							<div class="limit">
-								<div class="row">
-									<span>{limit.label}</span>
-									<span class="value">{limitValue(limit)}</span>
-								</div>
-								{#if limit.usedFraction !== null}
-									<div
-										class="track"
-										role="progressbar"
-										aria-label="{limit.label} used"
-										aria-valuemin={0}
-										aria-valuemax={100}
-										aria-valuenow={percent(limit.usedFraction)}
-									>
-										<div class="fill" style:--fraction={clamp(limit.usedFraction)}></div>
-									</div>
-								{/if}
-								{#if limit.resetsAt !== null}
-									<span class="meta">{resetsIn(limit.resetsAt)}</span>
-								{/if}
-							</div>
-						{/each}
-					{/each}
-				{/if}
-			</section>
-
-			<section class="section chat">
-				<h3>This chat</h3>
-				{#if !noShares}
-					<p class="meta">Per-chat shares are estimates; other account activity during the same window may be included.</p>
-					{#each shareRows as { limit, share } (limit.id)}
-						<div class="row">
-							<span>Share of {limit.windowLabel ?? limit.label}</span>
-							<span class="value">
-								{approxPercent(share)} of {limit.windowLabel ? windowName(limit.windowLabel) : limit.label}
-							</span>
-						</div>
-					{/each}
-				{/if}
-
-				{#if !stats}
-					<p class="meta">
-						No chat usage has been recorded yet. Send a message after OMP starts to see tokens, cost, and context use.
-					</p>
-				{:else}
-					{#if noShares}
-						<p class="meta">No window share has been estimated for this chat yet.</p>
-					{/if}
-					<div class="limit">
-						<div class="row">
-							<span>Tokens</span>
-							<span class="value">{count(stats.tokens.total)}</span>
-						</div>
-						<span class="meta">
-							Input {count(stats.tokens.input)} · Output {count(stats.tokens.output)} · Cache read {count(stats.tokens.cacheRead)}
-							· Cache write {count(stats.tokens.cacheWrite)}
-						</span>
-					</div>
-					<div class="row">
-						<span>Cost</span>
-						<span class="value">{formatUsd(stats.cost, true)}</span>
-					</div>
-					{#if stats.context}
-						{@const ctx = stats.context}
-						<div class="limit">
-							<div class="row">
-								<span>Context</span>
-								<span class="value">{percent(ctx.fraction)}% · {count(ctx.tokens)} / {count(ctx.window)} tokens</span>
-							</div>
-							<div
-								class="track"
-								role="progressbar"
-								aria-label="Context window used"
-								aria-valuemin={0}
-								aria-valuemax={100}
-								aria-valuenow={percent(ctx.fraction)}
-							>
-								<div class="fill" style:--fraction={clamp(ctx.fraction)}></div>
-							</div>
-						</div>
-					{/if}
-				{/if}
-
-				{#if fetchedAt !== null}
-					<p class="meta">Limits checked at {new Date(fetchedAt).toLocaleTimeString()}</p>
-				{/if}
-			</section>
-		{/if}
-	</div>
-</Popover>
+						{#if !noShares}
+							{#each shareRows as { limit, share } (limit.id)}
+								<tr>
+									<th scope="row">Share of {limit.windowLabel ? `${windowName(limit.windowLabel)} window` : limit.label}</th>
+									<td class="num">{approxPercent(share)}</td>
+								</tr>
+							{/each}
+						{/if}
+					</tbody>
+				</table>
+			{/if}
+			<p class="meta">
+				{#if !noShares}Per-chat shares are estimates; other account activity during the same window may be included.{:else if stats}No window share has been estimated for this chat yet.{/if}
+				{#if fetchedAt !== null}Limits checked at {new Date(fetchedAt).toLocaleTimeString()}.{/if}
+			</p>
+		</section>
+	{/if}
+</Dialog>
 
 <style>
-	.usage {
-		display: grid;
-		gap: var(--sp-3);
+	.top,
+	.heading {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-2);
 		min-width: 0;
-		inline-size: min(calc(var(--menu-min-w) * 2), calc(100vw - var(--sp-4)));
-		padding: var(--sp-2);
 	}
-	h2,
+	.top .busy {
+		margin-inline-start: auto;
+	}
+	.heading {
+		justify-content: space-between;
+		align-items: baseline;
+	}
 	h3,
 	p {
 		margin: 0;
 	}
-	h2,
-	h3 {
-		font-size: var(--text-sm);
-		font-weight: 600;
-	}
-	.section,
-	.limit {
+	section {
 		display: grid;
 		gap: var(--sp-2);
 		min-width: 0;
 	}
-	.limit {
-		gap: var(--sp-1);
-	}
-	.chat {
-		border-block-start: var(--border);
+	section + section {
 		padding-block-start: var(--sp-3);
+		border-block-start: var(--border);
 	}
-	.row {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-		gap: var(--sp-2);
-		min-width: 0;
-		& > :first-child {
-			min-width: 0;
-			overflow-wrap: anywhere;
-		}
+	table {
+		inline-size: 100%;
+		border-collapse: collapse;
+		font-size: var(--text-sm);
 	}
-	.value {
-		text-align: right;
-		font-variant-numeric: tabular-nums;
-		flex: none;
+	th,
+	td {
+		padding-block: var(--sp-1);
+		text-align: start;
+		vertical-align: baseline;
 	}
-	.model > .truncate {
-		min-width: 0;
+	th:not(:first-child),
+	td {
+		padding-inline-start: var(--sp-3);
 	}
-	.model {
-		display: flex;
-		align-items: baseline;
-		gap: var(--sp-2);
-		min-width: 0;
+	thead th {
+		font-size: var(--text-xs);
 		font-weight: 500;
+		color: var(--fg-muted);
+		border-block-end: var(--border);
+	}
+	tbody th {
+		font-weight: 400;
+	}
+	tbody tr + tr > * {
+		border-block-start: var(--border);
+	}
+	.group th {
+		padding-block-start: var(--sp-2);
+	}
+	.sub th {
+		padding-inline-start: var(--sp-3);
+		color: var(--fg-muted);
+	}
+	.sub td {
+		color: var(--fg-muted);
+	}
+	.num {
+		text-align: end;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+	}
+	.bar {
+		vertical-align: middle;
+	}
+	.used {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--sp-2);
+	}
+	.track {
+		display: block;
+		inline-size: var(--usage-bar-w);
+		block-size: var(--sp-1);
+		border-radius: var(--radius-full);
+		overflow: hidden;
+		color: var(--fg-muted);
+		background: oklch(from var(--fg-muted) l c h / 0.16);
+	}
+	.fill {
+		display: block;
+		inline-size: calc(var(--fraction) * 100%);
+		block-size: 100%;
+		background: currentColor;
 	}
 	.busy {
 		display: inline-flex;
@@ -338,17 +376,5 @@
 		.field-error {
 			margin-top: 0;
 		}
-	}
-	.track {
-		height: var(--sp-1);
-		border-radius: var(--radius-full);
-		overflow: hidden;
-		color: var(--fg-muted);
-		background: oklch(from var(--fg-muted) l c h / 0.16);
-	}
-	.fill {
-		inline-size: calc(var(--fraction) * 100%);
-		block-size: 100%;
-		background: currentColor;
 	}
 </style>

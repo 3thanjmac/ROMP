@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import type { AgentServerMsg } from "@romp/protocol";
+import type { AgentServerMsg, ModelChoice } from "@romp/protocol";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,9 +67,10 @@ afterAll(async () => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
-function makeAgent(id: string, prompt?: string, sessionFile: string | null = null): Agent {
+function makeAgent(id: string, prompt?: string, sessionFile: string | null = null, choice?: ModelChoice): Agent {
 	const record: AgentRecord = { id, title: id, cwd: dir, createdAt: 1, sessionFile };
-	const agent = new Agent(record, null, { omp, persist: () => {}, busyChanged: () => {}, notify: () => {}, spent: () => {} }, prompt);
+	const host = { omp, persist: () => {}, busyChanged: () => {}, notify: () => {}, spent: () => {} };
+	const agent = new Agent(record, null, host, prompt, choice);
 	agents.push(agent);
 	return agent;
 }
@@ -182,4 +183,16 @@ test("setTitle renames the agent, tells clients, and names the OMP session", asy
 	await agent.rpc(a.socket, "s", { type: "get_state" });
 	await a.until(() => a.response("s") !== undefined, "state");
 	expect(a.response("s")).toMatchObject({ success: true, data: { sessionName: "Fix the login flow" } });
+});
+
+test("a start choice is applied when OMP starts; setThinking switches and reports the session's state", async () => {
+	const agent = makeAgent("a6", "hello", null, { model: { provider: "fake", id: "big" }, level: "high" });
+	await agent.ensureRunning();
+	expect(await agent.thinking()).toEqual({ model: { provider: "fake", id: "big" }, level: "high" });
+	expect(await agent.setThinking({ model: null, level: "low" })).toEqual({ model: { provider: "fake", id: "big" }, level: "low" });
+	expect(await agent.setThinking({ model: { provider: "fake", id: "small" }, level: null })).toEqual({
+		model: { provider: "fake", id: "small" },
+		level: "low",
+	});
+	await expect(agent.setThinking({ model: { provider: "nope", id: "x" }, level: null })).rejects.toThrow("Model not found");
 });

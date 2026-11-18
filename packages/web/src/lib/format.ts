@@ -59,16 +59,16 @@ export function relativeTime(ms: number, now = Date.now()): string {
 	return `${Math.floor(d / 365)}y`;
 }
 
-/** Time until an account-limit window resets: "resets in <1m", "14m", "2h 14m", "6d 3h"; past due says so. */
+/** Time until an account-limit window resets, for a "Resets" column: "in <1m", "in 14m", "in 2h 14m", "in 6d 3h"; past due says so. */
 export function resetsIn(resetsAt: number, now = Date.now()): string {
 	const ms = resetsAt - now;
-	if (ms <= 0) return "reset due; reopen to refresh";
+	if (ms <= 0) return "Due; reopen to refresh";
 	const m = Math.floor(ms / 60_000);
-	if (m < 1) return "resets in <1m";
-	if (m < 60) return `resets in ${m}m`;
+	if (m < 1) return "in <1m";
+	if (m < 60) return `in ${m}m`;
 	const h = Math.floor(m / 60);
-	if (h < 48) return `resets in ${h}h ${m % 60}m`;
-	return `resets in ${Math.floor(h / 24)}d ${h % 24}h`;
+	if (h < 48) return `in ${h}h ${m % 60}m`;
+	return `in ${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
 /** An estimated 0..1 share as an approximate percent: "≈0.3%", "≈3%", "≈42%"; "<0.1%" for tiny nonzero shares. */

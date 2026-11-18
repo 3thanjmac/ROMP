@@ -1,9 +1,10 @@
-import type { AgentInfo, AgentServerMsg } from "@romp/protocol";
+import type { AgentInfo, AgentServerMsg, ModelChoice, ThinkingLevel } from "@romp/protocol";
 import type { Subprocess } from "bun";
 import { errorMessage, isRecord, withTimeout } from "../util.ts";
 import { sendJson, type Socket } from "../ws.ts";
 import { ChunkDecoder, FrameError, LineSplitter, parseJson, type RpcFrame } from "./frames.ts";
 import { type AgentNotice, exitNotice, NoticeTracker } from "./notices.ts";
+import { isThinkingLevel } from "./models.ts";
 import { type ChatModel, type ChatStats, parseModel, parseSessionStats, type UsageBook } from "./usage.ts";
 
 /** What survives a gateway restart. */
@@ -59,8 +60,8 @@ const START_FAILED = 4503;
 const STDERR_TAIL_CHARS = 4096;
 /** How long an early exit waits for OMP's stderr to drain before reporting why it failed. */
 const STDERR_DRAIN_MS = 1_000;
-/** `GET /api/agents/:id/usage` waits this long for OMP's live stats before answering with the last ones seen. */
-const USAGE_COMMAND_TIMEOUT_MS = 5_000;
+/** `GET /api/agents/:id/usage` and `/thinking` wait this long for OMP's live state before answering with the last one seen. */
+const LIVE_STATE_TIMEOUT_MS = 5_000;
 /** `extension_ui_request` methods that wait for an `extension_ui_response`. */
 const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor", "ask"]);
 /** Commands after which the session file may have changed. */
@@ -90,12 +91,15 @@ export class Agent {
 	private nextId = 0;
 	private lastStats: ChatStats | null = null;
 	private lastModel: ChatModel | null = null;
+	private lastLevel: ThinkingLevel | null = null;
 
 	constructor(
 		private readonly record: AgentRecord,
 		readonly task: AgentInfo["task"],
 		private readonly host: AgentHost,
 		private initialPrompt: string | undefined,
+		/** Applied once, before `initialPrompt`. */
+		private initialChoice?: ModelChoice,
 	) {}
 
 	get id(): string {
@@ -123,12 +127,42 @@ export class Agent {
 	async usageState(): Promise<{ stats: ChatStats | null; model: ChatModel | null }> {
 		if (this.ready && !this.exited && !this.closed) {
 			const ask = (type: string) =>
-				withTimeout(this.command({ type }), USAGE_COMMAND_TIMEOUT_MS, `omp did not answer ${type}`);
+				withTimeout(this.command({ type }), LIVE_STATE_TIMEOUT_MS, `omp did not answer ${type}`);
 			const [stats, state] = await Promise.allSettled([ask("get_session_stats"), ask("get_state")]);
 			if (stats.status === "fulfilled") this.lastStats = parseSessionStats(stats.value) ?? this.lastStats;
 			if (state.status === "fulfilled") this.noteState(state.value);
 		}
 		return { stats: this.lastStats, model: this.lastModel };
+	}
+
+	/** The session's model and thinking effort, live when OMP is running, else the last ones seen. Never spawns OMP. */
+	async thinking(): Promise<ModelChoice> {
+		if (this.ready && !this.exited && !this.closed) {
+			try {
+				this.noteState(await withTimeout(this.command({ type: "get_state" }), LIVE_STATE_TIMEOUT_MS, "omp did not answer get_state"));
+			} catch (err) {
+				console.warn(`agent ${this.id}: ${errorMessage(err)}`);
+			}
+		}
+		return this.currentChoice();
+	}
+
+	/** Switches the session's model and/or effort, starting OMP if needed, and reports what OMP settled on. */
+	async setThinking(choice: ModelChoice): Promise<ModelChoice> {
+		await this.ensureRunning();
+		await this.applyChoice(choice);
+		this.noteState(await this.command({ type: "get_state" }));
+		return this.currentChoice();
+	}
+
+	private currentChoice(): ModelChoice {
+		const model = this.lastModel;
+		return { model: model && { provider: model.provider, id: model.id }, level: this.lastLevel };
+	}
+
+	private async applyChoice(choice: ModelChoice): Promise<void> {
+		if (choice.model) await this.command({ type: "set_model", provider: choice.model.provider, modelId: choice.model.id });
+		if (choice.level) await this.command({ type: "set_thinking_level", level: choice.level });
 	}
 
 	info(): AgentInfo {
@@ -260,6 +294,9 @@ export class Agent {
 					console.warn(`agent ${this.id}: could not resume ${this.record.sessionFile}: ${resumed.error}`);
 				}
 			}
+			const choice = this.initialChoice;
+			this.initialChoice = undefined;
+			if (choice) await this.applyChoice(choice);
 			await this.refreshSessionFile();
 			const prompt = this.initialPrompt;
 			this.initialPrompt = undefined;
@@ -381,6 +418,7 @@ export class Agent {
 
 	private noteState(state: unknown): void {
 		this.lastModel = parseModel(state) ?? this.lastModel;
+		if (isRecord(state) && isThinkingLevel(state.thinkingLevel)) this.lastLevel = state.thinkingLevel;
 	}
 
 	get isBusy(): boolean {

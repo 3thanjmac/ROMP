@@ -14,6 +14,8 @@ import type {
 	ListeningPort,
 	LoginRequest,
 	Me,
+	ModelChoice,
+	ModelOption,
 	PushConfig,
 	PushEndpoint,
 	PushSubscriptionInput,
@@ -214,6 +216,15 @@ export const api = {
 		kill: (id: string) => request<unknown>("DELETE", `/api/agents/${q(id)}`),
 		/** Account limits and this chat's usage; the gateway runs `omp usage`, so call it on demand, never on a timer. */
 		usage: (id: string) => request<AgentUsage>("GET", `/api/agents/${q(id)}/usage`),
+		/** The session's current model and thinking effort. */
+		thinking: (id: string) => request<ModelChoice>("GET", `/api/agents/${q(id)}/thinking`),
+		/** Switches the session's model and/or effort (null fields stay); answers with what OMP settled on. */
+		setThinking: (id: string, choice: ModelChoice) => request<ModelChoice>("PUT", `/api/agents/${q(id)}/thinking`, choice),
+	},
+
+	/** Chat models OMP lists (`omp models`). */
+	models: {
+		list: () => request<ModelOption[]>("GET", "/api/models"),
 	},
 
 	repos: {

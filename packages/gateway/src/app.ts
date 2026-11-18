@@ -21,15 +21,18 @@ import {
 	type ListeningPort,
 	MAX_ENV_BYTES,
 	type Me,
+	type ModelChoice,
 	type PushConfig,
 	type TaskCreated,
 	type TaskInfo,
 	type TermClientMsg,
+	THINKING_LEVELS,
 } from "@romp/protocol";
 import type { Server, WebSocketHandler } from "bun";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 import type { AgentManager } from "./agents/manager.ts";
+import { parseChoice } from "./agents/models.ts";
 import type { TitleGenerator } from "./agents/title.ts";
 import { type Auth, crossOriginError, type Identity } from "./auth.ts";
 import type { GatewayConfig } from "./config.ts";
@@ -242,6 +245,12 @@ function optionalStringArray(body: Record<string, unknown>, key: string): string
 	return value;
 }
 
+function requireChoice(value: unknown): ModelChoice {
+	const choice = parseChoice(value);
+	if (!choice) throw badRequest(`expected { model: { provider, id } | null, level: ${THINKING_LEVELS.join(" | ")} | null }`);
+	return choice;
+}
+
 function buildRouter(deps: AppDeps): Router<Ctx> {
 	const { cfg, roots, files, terms, agents, romp } = deps;
 	const router = new Router<Ctx>();
@@ -368,6 +377,19 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 		if (!usage) throw notFound("Unknown agent");
 		return json(usage);
 	});
+	router.on("GET", "/api/agents/:id/thinking", async (_ctx, { id = "" }) => {
+		const agent = agents.get(id);
+		if (!agent) throw notFound("Unknown agent");
+		return json(await agent.thinking());
+	});
+	router.on("PUT", "/api/agents/:id/thinking", async ({ req }, { id = "" }) => {
+		const agent = agents.get(id);
+		if (!agent) throw notFound("Unknown agent");
+		const choice = requireChoice(await readJson(req, SMALL_BODY));
+		await agents.checkChoice(choice);
+		return json(await agent.setThinking(choice));
+	});
+	router.on("GET", "/api/models", async () => json(await agents.models()));
 	router.on("DELETE", "/api/agents/:id", async (_ctx, { id = "" }) => {
 		if (!(await agents.remove(id))) throw notFound("Unknown agent");
 		return noContent();
@@ -439,12 +461,14 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 		const body = await readJson(req, SMALL_BODY);
 		const prompt = optionalString(body, "prompt")?.trim();
 		if (body.autoTitle !== undefined && typeof body.autoTitle !== "boolean") throw badRequest(`"autoTitle" must be true or false`);
+		const choice = body.thinking === undefined ? undefined : requireChoice(body.thinking);
+		if (choice) await agents.checkChoice(choice);
 		const task = await createTask(romp, {
 			repo: requireString(body, "repo"),
 			title: requireString(body, "title"),
 			slug: optionalString(body, "slug") || undefined,
 		});
-		const agent = prompt ? agents.create(await requireDir(roots, task.path), task.title, prompt).info() : null;
+		const agent = prompt ? agents.create(await requireDir(roots, task.path), task.title, prompt, choice).info() : null;
 		if (body.autoTitle && prompt && agent) {
 			retitle(task, agent.id, prompt).catch((err: unknown) =>
 				console.warn(`titling ${task.repo}/${task.slug}: ${errorMessage(err)}`),

@@ -3,7 +3,6 @@
 	import { Icons, KIND_ICON } from "../icons";
 	import Chip from "../ui/Chip.svelte";
 	import ClientCount from "../ui/ClientCount.svelte";
-	import ConnDot from "../ui/ConnDot.svelte";
 	import Icon from "../ui/Icon.svelte";
 	import IconButton from "../ui/IconButton.svelte";
 	import Menu from "../ui/Menu.svelte";
@@ -11,6 +10,7 @@
 	import MenuSection from "../ui/MenuSection.svelte";
 	import Spinner from "../ui/Spinner.svelte";
 	import type { PaneStatus } from "./pane.svelte";
+	import AgentThinkingButton from "./AgentThinkingButton.svelte";
 	import AgentUsageButton from "./AgentUsageButton.svelte";
 	import SaveStatus from "./SaveStatus.svelte";
 	import { displayTitle, sessionOf, shell } from "./shell.svelte";
@@ -85,8 +85,10 @@
 		{/if}
 		{#if win.kind === "terminal" || win.kind === "agent"}
 			<ClientCount count={status.clients} />
-			{#if status.conn}<ConnDot state={status.conn} exitCode={status.exitCode} />{/if}
-			{#if win.kind === "agent"}<AgentUsageButton agentId={win.props.agentId ?? null} />{/if}
+			{#if win.kind === "agent"}
+				<AgentThinkingButton agentId={win.props.agentId ?? null} />
+				<AgentUsageButton agentId={win.props.agentId ?? null} />
+			{/if}
 		{/if}
 		{#if showWidth}<WidthPresetButton id={win.id} width={win.width} />{/if}
 		<Menu label="Window actions" placement="bottom-end">

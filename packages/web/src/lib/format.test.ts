@@ -5,15 +5,15 @@ describe("resetsIn", () => {
 	const now = 1_000_000_000;
 	const min = 60_000;
 	it("formats each range", () => {
-		expect(resetsIn(now + 30_000, now)).toBe("resets in <1m");
-		expect(resetsIn(now + 14 * min, now)).toBe("resets in 14m");
-		expect(resetsIn(now + (2 * 60 + 14) * min, now)).toBe("resets in 2h 14m");
-		expect(resetsIn(now + (47 * 60 + 5) * min, now)).toBe("resets in 47h 5m");
-		expect(resetsIn(now + (6 * 24 + 3) * 60 * min, now)).toBe("resets in 6d 3h");
+		expect(resetsIn(now + 30_000, now)).toBe("in <1m");
+		expect(resetsIn(now + 14 * min, now)).toBe("in 14m");
+		expect(resetsIn(now + (2 * 60 + 14) * min, now)).toBe("in 2h 14m");
+		expect(resetsIn(now + (47 * 60 + 5) * min, now)).toBe("in 47h 5m");
+		expect(resetsIn(now + (6 * 24 + 3) * 60 * min, now)).toBe("in 6d 3h");
 	});
 	it("reports a passed reset", () => {
-		expect(resetsIn(now - min, now)).toBe("reset due; reopen to refresh");
-		expect(resetsIn(now, now)).toBe("reset due; reopen to refresh");
+		expect(resetsIn(now - min, now)).toBe("Due; reopen to refresh");
+		expect(resetsIn(now, now)).toBe("Due; reopen to refresh");
 	});
 });
 

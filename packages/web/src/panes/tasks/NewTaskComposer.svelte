@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { autoTitle, type LandMode, type RepoInfo } from "@romp/protocol";
+	import { autoTitle, type LandMode, type ModelChoice, type RepoInfo } from "@romp/protocol";
 	import { api, errorMessage } from "../../lib/api";
 	import { Icons } from "../../lib/icons";
+	import ThinkingButton from "../../lib/shell/ThinkingButton.svelte";
 	import AsyncButton from "../../lib/ui/AsyncButton.svelte";
 	import Button from "../../lib/ui/Button.svelte";
 	import Segmented from "../../lib/ui/Segmented.svelte";
@@ -22,6 +23,8 @@
 	let error: string | null = $state(null);
 	let pendingLabel = $state("Creating worktree…");
 	let touched = $state(false);
+	/** Kept across tasks: the next task likely wants the same model. */
+	let thinking = $state<ModelChoice>({ model: null, level: null });
 
 	const hasDraft = $derived(prompt.trim() !== "");
 
@@ -49,6 +52,7 @@
 				title: autoTitle(text),
 				prompt: text,
 				autoTitle: true,
+				...(thinking.model || thinking.level ? { thinking } : {}),
 			});
 			data.tasks = [...data.tasks, created.task];
 			if (created.agent) onagent(created.agent.id, created.agent.cwd);
@@ -82,6 +86,7 @@
 				value={repo.land}
 				onchange={(land) => data.setLand(repo, land)}
 			/>
+			<ThinkingButton value={thinking} allowDefault onchange={(choice) => (thinking = choice)} placement="bottom-start" />
 		</div>
 		<div class="buttons">
 			{#if hasDraft}<Button variant="ghost" onclick={clear}>Cancel</Button>{/if}
@@ -102,6 +107,11 @@
 	textarea {
 		min-height: var(--task-field-min-h);
 		max-height: var(--field-max-h);
+	}
+	.land {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-2);
 	}
 	.actions {
 		container-type: inline-size;

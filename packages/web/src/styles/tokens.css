@@ -226,6 +226,10 @@
 	--composer-max-h: 12lh;
 	--task-field-min-h: 3lh;
 	--upload-info-min: 12rem;
+	--wheel-row-h: 2rem;
+	--wheel-model-w: 16rem;
+	--wheel-effort-w: 7.5rem;
+	--usage-bar-w: 4rem;
 
 	/* Safe areas and visual viewport (viewport.svelte.ts overwrites the last three at runtime) */
 	--safe-top: env(safe-area-inset-top, 0px);

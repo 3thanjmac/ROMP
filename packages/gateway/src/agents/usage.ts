@@ -288,7 +288,7 @@ export function parseModel(state: unknown): ChatModel | null {
 }
 
 /** Runs OMP with `args` and resolves with its stdout; rejects on a non-zero exit, a spawn failure, or a timeout. */
-async function runOmp(omp: string, args: string[]): Promise<string> {
+export async function runOmp(omp: string, args: string[]): Promise<string> {
 	const what = `omp ${args.join(" ")}`;
 	let proc: Subprocess<"ignore", "pipe", "pipe">;
 	try {

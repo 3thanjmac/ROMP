@@ -9,6 +9,8 @@ let messages: unknown[] = [];
 let busy = false;
 let v2 = false;
 let sessionName: string | undefined;
+let model = { provider: "fake", id: "default" };
+let thinkingLevel = "medium";
 
 function emit(frame: object): void {
 	const json = JSON.stringify(frame);
@@ -77,7 +79,14 @@ function handle(cmd: Record<string, unknown>): void {
 			sessionName = String(cmd.name);
 			return respond(cmd, {});
 		case "get_state":
-			return respond(cmd, { sessionFile, isStreaming: busy, sessionName });
+			return respond(cmd, { sessionFile, isStreaming: busy, sessionName, model, thinkingLevel });
+		case "set_model":
+			if (cmd.provider !== "fake") return respond(cmd, undefined, `Model not found: ${cmd.provider}/${cmd.modelId}`);
+			model = { provider: "fake", id: String(cmd.modelId) };
+			return respond(cmd, model);
+		case "set_thinking_level":
+			thinkingLevel = String(cmd.level);
+			return respond(cmd, {});
 		case "get_messages_page":
 			return respond(cmd, { messages, totalMessages: messages.length });
 		case "get_messages":
