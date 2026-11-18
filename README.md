@@ -51,6 +51,33 @@ flowchart LR
 
 You need a Debian 13 machine or VM, a Tailscale account, and an account with a model provider for OMP. [docs/deploy.md](docs/deploy.md) has the full walkthrough for TrueNAS SCALE: VM sizing, bridged networking, and running Tailscale alongside the host's.
 
+### Quick setup
+
+For people who know their way around Linux. Run this on a fresh Debian 13 VM, from your own account with sudo, top to bottom. It sets up ROMP with one user: you. Set the three variables first; `LOGIN` is the Tailscale login you sign in with.
+
+```sh
+LOGIN=you@github  GIT_NAME="Your Name"  GIT_EMAIL=you@example.com
+
+sudo apt-get update && sudo apt-get install -y curl git
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --ssh                      # open the printed link to sign in
+sudo mkdir -p /opt/romp && sudo chown "$USER": /opt/romp
+git clone https://github.com/3thanjmac/ROMP.git /opt/romp
+sudo /opt/romp/deploy/install.sh
+sudo -iu romp gh auth login                  # merge queue: HTTPS, yes to authenticating git
+sudo -iu romp omp setup                      # merge queue: provider and models
+sudo /opt/romp/deploy/add-user.sh "$USER" "$LOGIN" 7680 443
+git config --global user.name "$GIT_NAME"
+git config --global user.email "$GIT_EMAIL"
+gh auth login                                # you: only needed to add private repos
+~/.bun/bin/omp setup                         # you: provider and models
+tailscale serve status                       # open the printed URL
+```
+
+If `add-user.sh` reports that HTTPS is off for your tailnet, open the link it prints, turn HTTPS on, and run that line again. Add more people, LAN access and automatic updates with the steps below.
+
+### Step by step
+
 1. **Install Tailscale in the VM.** Don't use `--accept-routes` if another node advertises your LAN.
    ```sh
    curl -fsSL https://tailscale.com/install.sh | sh
