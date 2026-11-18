@@ -16,13 +16,11 @@
 		value: T;
 		/** Accessible name of the radiogroup. */
 		label: string;
-		/** Show icons only; each option's label becomes its aria-label + tooltip. */
-		iconOnly?: boolean;
 		disabled?: boolean;
 		onchange?: (value: T) => void;
 	}
 
-	let { options, value = $bindable(), label, iconOnly = false, disabled = false, onchange }: Props = $props();
+	let { options, value = $bindable(), label, disabled = false, onchange }: Props = $props();
 
 	let group: HTMLDivElement;
 
@@ -46,34 +44,20 @@
 
 <div class="segmented" role="radiogroup" aria-label={label} aria-disabled={disabled} bind:this={group}>
 	{#each options as o (o.value)}
-		{#if iconOnly}
-			<button
-				role="radio"
-				aria-checked={o.value === value}
-				aria-label={o.label}
-				tabindex={o.value === value ? 0 : -1}
-				data-value={o.value}
-				{disabled}
-				onclick={() => select(o.value)}
-				{onkeydown}
-				use:tooltip
-			>
-				{#if o.icon}<Icon icon={o.icon} size="sm" />{/if}
-			</button>
-		{:else}
-			<button
-				role="radio"
-				aria-checked={o.value === value}
-				tabindex={o.value === value ? 0 : -1}
-				data-value={o.value}
-				{disabled}
-				onclick={() => select(o.value)}
-				{onkeydown}
-			>
-				{#if o.icon}<Icon icon={o.icon} size="sm" />{/if}
-				<span>{o.label}</span>
-			</button>
-		{/if}
+		<button
+			role="radio"
+			aria-checked={o.value === value}
+			aria-label={o.label}
+			tabindex={o.value === value ? 0 : -1}
+			data-value={o.value}
+			{disabled}
+			onclick={() => select(o.value)}
+			{onkeydown}
+			use:tooltip
+		>
+			{#if o.icon}<Icon icon={o.icon} size="sm" />{/if}
+			<span class="label">{o.label}</span>
+		</button>
 	{/each}
 </div>
 
@@ -115,6 +99,10 @@
 			opacity: 0.6;
 			cursor: not-allowed;
 		}
+	}
+	/* An ancestor sets `--seg-label-display: none` (e.g. in a container query) to collapse to icons; the tooltip then shows the label. */
+	.label {
+		display: var(--seg-label-display, inline);
 	}
 	@media (pointer: coarse) {
 		button {

@@ -5,7 +5,6 @@
 	import AsyncButton from "../../lib/ui/AsyncButton.svelte";
 	import Button from "../../lib/ui/Button.svelte";
 	import Segmented from "../../lib/ui/Segmented.svelte";
-	import { TITLE_MAX } from "./group";
 	import type { TasksData } from "./tasksData.svelte";
 
 	interface Props {
@@ -18,41 +17,21 @@
 	let { repo, data, onagent }: Props = $props();
 
 	const STEP_MS = 2000;
-	const SAVED_MS = 2000;
-	/** Below this action-row width the landing toggle drops its labels so it stays beside Start task. */
-	const COMPACT_LAND_PX = 440;
 
 	let prompt = $state("");
-	let title = $state("");
 	let error: string | null = $state(null);
 	let pendingLabel = $state("Creating worktree…");
 	let touched = $state(false);
-	let saved = $state(false);
-	let savedTimer: number | undefined;
-	let actionsWidth = $state(0);
 
-	const suggested = $derived(autoTitle(prompt));
-	const hasDraft = $derived(prompt.trim() !== "" || title.trim() !== "");
+	const hasDraft = $derived(prompt.trim() !== "");
 
 	const landOptions = $derived([
 		{ value: "push" as LandMode, label: `Push to ${repo.branch}`, icon: Icons.LandPush },
 		{ value: "pr" as LandMode, label: "Pull request", icon: Icons.LandPr },
 	]);
-	const compactLand = $derived(actionsWidth > 0 && actionsWidth < COMPACT_LAND_PX);
-	const landLabel = $derived(landOptions.find((o) => o.value === repo.land)?.label);
-
-	async function setLand(land: LandMode) {
-		clearTimeout(savedTimer);
-		saved = false;
-		if (await data.setLand(repo, land)) {
-			saved = true;
-			savedTimer = window.setTimeout(() => (saved = false), SAVED_MS);
-		}
-	}
 
 	function clear() {
 		prompt = "";
-		title = "";
 		touched = false;
 		error = null;
 	}
@@ -61,16 +40,15 @@
 		touched = true;
 		const text = prompt.trim();
 		if (!text) return;
-		const typed = title.trim();
 		error = null;
 		pendingLabel = "Creating worktree…";
 		const step = window.setTimeout(() => (pendingLabel = "Starting agent…"), STEP_MS);
 		try {
 			const created = await api.tasks.create({
 				repo: repo.name,
-				title: typed || autoTitle(text),
+				title: autoTitle(text),
 				prompt: text,
-				autoTitle: !typed,
+				autoTitle: true,
 			});
 			data.tasks = [...data.tasks, created.task];
 			if (created.agent) onagent(created.agent.id, created.agent.cwd);
@@ -95,22 +73,15 @@
 			placeholder="Describe the change..."
 		></textarea>
 	</label>
-	<label>
-		<span>Title <span class="subtle">(optional)</span></span>
-		<input bind:value={title} maxlength={TITLE_MAX} placeholder={suggested || "Generated from the prompt"} />
-	</label>
 	{#if error}<p class="field-error">{error}</p>{/if}
-	<div class="actions" bind:clientWidth={actionsWidth}>
+	<div class="actions">
 		<div class="land">
 			<Segmented
 				label="Landing mode for {repo.name}"
 				options={landOptions}
 				value={repo.land}
-				iconOnly={compactLand}
-				onchange={setLand}
+				onchange={(land) => data.setLand(repo, land)}
 			/>
-			{#if compactLand}<span class="land-label" aria-hidden="true">{landLabel}</span>{/if}
-			{#if saved}<span class="meta saved" role="status">Saved</span>{/if}
 		</div>
 		<div class="buttons">
 			{#if hasDraft}<Button variant="ghost" onclick={clear}>Cancel</Button>{/if}
@@ -133,32 +104,23 @@
 		max-height: var(--field-max-h);
 	}
 	.actions {
+		container-type: inline-size;
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--sp-2);
 	}
-	.land,
 	.buttons {
 		display: flex;
 		align-items: center;
 		gap: var(--sp-2);
-	}
-	.buttons {
 		margin-inline-start: auto;
 	}
-	.land-label {
-		font-size: var(--text-sm);
-		color: var(--fg-muted);
-		white-space: nowrap;
-	}
-	.saved {
-		animation: fade var(--dur-enter) var(--ease);
-	}
-	@keyframes fade {
-		from {
-			opacity: 0;
+	/* Too narrow for the labelled landing toggle beside the buttons: collapse it to icons (labels move to tooltips). */
+	@container (width < 440px) {
+		.land {
+			--seg-label-display: none;
 		}
 	}
 </style>

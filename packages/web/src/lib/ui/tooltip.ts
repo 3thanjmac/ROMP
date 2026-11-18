@@ -1,5 +1,6 @@
 /**
- * `use:tooltip` shows the element's aria-label (or an explicit text) on hover and keyboard focus, never on touch.
+ * `use:tooltip` shows the element's aria-label (or an explicit text) on hover and keyboard focus, never on touch,
+ * and only while that text isn't already visible in the element (e.g. a label collapsed by CSS).
  * The first tooltip waits WARMUP_MS; once one has shown, neighbours show instantly within SKIP_MS.
  */
 import type { Action } from "svelte/action";
@@ -34,7 +35,7 @@ function textFor(node: HTMLElement): string | null {
 function show(node: HTMLElement): void {
 	pending = null;
 	const text = textFor(node);
-	if (!text || !node.isConnected) return;
+	if (!text || !node.isConnected || node.innerText.trim() === text) return;
 	const tip = ensurePanel();
 	tip.textContent = text;
 	showTop(tip);
