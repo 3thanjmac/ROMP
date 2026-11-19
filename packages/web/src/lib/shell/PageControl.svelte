@@ -2,7 +2,8 @@
 	/**
 	 * Phone carousel position: one dot per window, the visible one highlighted. It follows the strip while a swipe
 	 * is in flight (frameUi.stripView), not only the settled focus. Pressing it never changes the page: press and
-	 * drag steps one window per dot pitch of travel. While held it rises above the finger so the dots stay visible.
+	 * drag steps one window per dot pitch of travel, once the press has been held briefly. While held it rises above
+	 * the finger so the dots stay visible.
 	 */
 	import { displayTitle, layoutMode, shell } from "./shell.svelte";
 	import { frameUi } from "./ui.svelte";
@@ -12,6 +13,8 @@
 	const STEP_MIN_PX = 16;
 	/** A short tick per page; navigator.vibrate exists on Android browsers, not iOS Safari. */
 	const HAPTIC_MS = 10;
+	/** How long a press must last before the control lifts and starts scrubbing; a shorter tap does nothing. */
+	const HOLD_MS = 150;
 
 	const ws = $derived(shell.active);
 	const count = $derived(ws.windows.length);
@@ -22,7 +25,9 @@
 	let track = $state<HTMLDivElement>();
 	let viewWidth = $state(0);
 	let trackWidth = $state(0);
-	let drag: { pointer: number; x: number; index: number; step: number } | null = null;
+	/** `active` once the press has lasted HOLD_MS; until then moves only re-anchor `x`. */
+	let drag: { pointer: number; x: number; index: number; step: number; active: boolean } | null = null;
+	let holdTimer: number | undefined;
 
 	/** When there are more dots than fit, the track slides to keep the current one in view. */
 	const offset = $derived.by(() => {
@@ -45,17 +50,26 @@
 		if (!el || !track || !e.isPrimary) return;
 		const [a, b] = track.children;
 		const pitch = a && b ? b.getBoundingClientRect().left - a.getBoundingClientRect().left : 0;
-		drag = { pointer: e.pointerId, x: e.clientX, index: current, step: Math.max(STEP_MIN_PX, pitch) };
+		drag = { pointer: e.pointerId, x: e.clientX, index: current, step: Math.max(STEP_MIN_PX, pitch), active: false };
 		el.setPointerCapture(e.pointerId);
-		frameUi.scrubbing = true;
+		clearTimeout(holdTimer);
+		holdTimer = window.setTimeout(() => {
+			if (!drag) return;
+			drag.active = true;
+			drag.index = current;
+			frameUi.scrubbing = true;
+		}, HOLD_MS);
 	}
 
 	function onpointermove(e: PointerEvent) {
 		if (e.pointerId !== drag?.pointer) return;
-		if (jump(drag.index + Math.trunc((e.clientX - drag.x) / drag.step)) && "vibrate" in navigator) navigator.vibrate(HAPTIC_MS);
+		// Travel before the hold completes doesn't count; stepping is measured from where the finger was at lift-off.
+		if (!drag.active) drag.x = e.clientX;
+		else if (jump(drag.index + Math.trunc((e.clientX - drag.x) / drag.step)) && "vibrate" in navigator) navigator.vibrate(HAPTIC_MS);
 	}
 
 	function release() {
+		clearTimeout(holdTimer);
 		drag = null;
 		frameUi.scrubbing = false;
 	}
@@ -136,9 +150,6 @@
 		background: var(--page-capsule);
 		border: var(--border);
 		touch-action: none;
-		-webkit-touch-callout: none;
-		user-select: none;
-		-webkit-user-select: none;
 		cursor: grab;
 		transition:
 			translate var(--dur) var(--ease-out-quint),

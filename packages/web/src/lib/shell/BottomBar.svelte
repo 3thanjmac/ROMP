@@ -69,6 +69,10 @@
 		border-block-start: var(--border);
 		z-index: var(--z-bar);
 		flex: none;
+		/* Chrome, not content: a long press or a scrub must never select the labels or raise the callout. */
+		user-select: none;
+		-webkit-user-select: none;
+		-webkit-touch-callout: none;
 		&.scrubbing {
 			z-index: var(--z-scrub);
 		}
