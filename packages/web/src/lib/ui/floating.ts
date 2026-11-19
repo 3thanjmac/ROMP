@@ -9,8 +9,16 @@ export type { Placement };
 
 const EDGE_PAD = 8;
 
-/** Keeps `panel` attached to `anchor` (scroll, resize, layout shifts). Returns the cleanup. */
-export function place(anchor: Element, panel: HTMLElement, placement: Placement, gap = 4): () => void {
+/**
+ * Keeps `panel` attached to `anchor` (scroll, resize, layout shifts). `center` centers it horizontally in the
+ * viewport, still above or below the anchor, for panels nearly as wide as a phone screen. Returns the cleanup.
+ */
+export function place(
+	anchor: Element,
+	panel: HTMLElement,
+	placement: Placement,
+	{ center = false, gap = 4 }: { center?: boolean; gap?: number } = {},
+): () => void {
 	return autoUpdate(anchor, panel, () => {
 		void computePosition(anchor, panel, {
 			placement,
@@ -28,7 +36,7 @@ export function place(anchor: Element, panel: HTMLElement, placement: Placement,
 				}),
 			],
 		}).then(({ x, y }) => {
-			panel.style.left = `${x}px`;
+			panel.style.left = `${center ? (document.documentElement.clientWidth - panel.offsetWidth) / 2 : x}px`;
 			panel.style.top = `${y}px`;
 		});
 	});

@@ -9,6 +9,7 @@
 	import Popover from "../ui/Popover.svelte";
 	import Spinner from "../ui/Spinner.svelte";
 	import Wheel, { type WheelOption } from "../ui/Wheel.svelte";
+	import { viewport } from "./viewport.svelte";
 
 	interface Props {
 		/** The current choice; null while it loads. */
@@ -179,7 +180,17 @@
 	{@attach ref}
 />
 
-<Popover {anchor} {open} {placement} role="dialog" label="Model and Thinking" bind:panel ondismiss={(how) => hide(how === "escape")}>
+<!-- On a phone the panel is nearly as wide as the screen, so it is centered rather than hung off the button. -->
+<Popover
+	{anchor}
+	{open}
+	{placement}
+	center={viewport.layout === "phone"}
+	role="dialog"
+	label="Model and Thinking"
+	bind:panel
+	ondismiss={(how) => hide(how === "escape")}
+>
 	<div class="thinking">
 		<div class="head">
 			<h2>Model and Thinking</h2>

@@ -15,6 +15,8 @@
 		onkeydown?: (e: KeyboardEvent) => void;
 		/** Size the panel to the anchor's width (autocomplete lists under an input). */
 		matchWidth?: boolean;
+		/** Center the panel horizontally in the viewport, above or below the anchor. */
+		center?: boolean;
 		children: Snippet;
 	}
 
@@ -28,13 +30,14 @@
 		panel = $bindable(null),
 		onkeydown,
 		matchWidth = false,
+		center = false,
 		children,
 	}: Props = $props();
 
 	function attach(node: HTMLElement) {
 		showTop(node);
 		const target = anchor;
-		const stopPlacing = target ? place(target, node, placement) : null;
+		const stopPlacing = target ? place(target, node, placement, { center }) : null;
 		const popEscape = pushEscape(() => ondismiss("escape"));
 		const onDown = (e: PointerEvent) => {
 			const t = e.target as Node | null;
