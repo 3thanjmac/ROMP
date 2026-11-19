@@ -2,13 +2,15 @@
  * `use:tooltip` shows the element's aria-label (or an explicit text) on hover and keyboard focus, never on touch,
  * and only while that text isn't already visible in the element (e.g. a label collapsed by CSS).
  * The first tooltip waits WARMUP_MS; once one has shown, neighbours show instantly within SKIP_MS.
+ * `flashTooltip` shows it above the element for FLASH_MS, e.g. to name an icon-only choice just tapped on touch.
  */
 import type { Action } from "svelte/action";
-import { autoUpdate, computePosition, flip, offset, shift } from "@floating-ui/dom";
+import { autoUpdate, computePosition, flip, offset, type Placement, shift } from "@floating-ui/dom";
 import { showTop } from "./floating";
 
 const WARMUP_MS = 600;
 const SKIP_MS = 300;
+const FLASH_MS = 1500;
 
 let panel: HTMLDivElement | null = null;
 let shown: HTMLElement | null = null;
@@ -32,7 +34,7 @@ function textFor(node: HTMLElement): string | null {
 	return texts.get(node) || node.getAttribute("aria-label");
 }
 
-function show(node: HTMLElement): void {
+function show(node: HTMLElement, placement: Placement = "bottom"): void {
 	pending = null;
 	const text = textFor(node);
 	if (!text || !node.isConnected || node.innerText.trim() === text) return;
@@ -43,7 +45,7 @@ function show(node: HTMLElement): void {
 	stopTracking?.();
 	stopTracking = autoUpdate(node, tip, () => {
 		void computePosition(node, tip, {
-			placement: "bottom",
+			placement,
 			strategy: "fixed",
 			middleware: [offset(6), flip({ padding: 8 }), shift({ padding: 8 })],
 		}).then(({ x, y }) => {
@@ -79,6 +81,12 @@ function schedule(node: HTMLElement): void {
 
 function release(node: HTMLElement): void {
 	if (shown === node || pending === node) hide();
+}
+
+export function flashTooltip(node: HTMLElement): void {
+	hide();
+	show(node, "top");
+	if (shown === node) timer = window.setTimeout(hide, FLASH_MS);
 }
 
 export const tooltip: Action<HTMLElement, string | undefined> = (node, text) => {

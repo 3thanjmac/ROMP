@@ -10,7 +10,7 @@
 
 <script lang="ts" generics="T extends string">
 	import Icon from "./Icon.svelte";
-	import { tooltip } from "./tooltip";
+	import { flashTooltip, tooltip } from "./tooltip";
 	interface Props {
 		options: SegmentedOption<T>[];
 		value: T;
@@ -23,11 +23,14 @@
 	let { options, value = $bindable(), label, disabled = false, onchange }: Props = $props();
 
 	let group: HTMLDivElement;
+	/** Touch has no hover, so a tap that switches names the picked option in a brief tooltip (when its label is collapsed). */
+	let touchTap = false;
 
-	function select(next: T) {
-		if (next === value || disabled) return;
+	function select(next: T): boolean {
+		if (next === value || disabled) return false;
 		value = next;
 		onchange?.(next);
+		return true;
 	}
 
 	function onkeydown(e: KeyboardEvent) {
@@ -45,13 +48,17 @@
 <div class="segmented" role="radiogroup" aria-label={label} aria-disabled={disabled} bind:this={group}>
 	{#each options as o (o.value)}
 		<button
+			type="button"
 			role="radio"
 			aria-checked={o.value === value}
 			aria-label={o.label}
 			tabindex={o.value === value ? 0 : -1}
 			data-value={o.value}
 			{disabled}
-			onclick={() => select(o.value)}
+			onpointerdown={(e) => (touchTap = e.pointerType === "touch")}
+			onclick={(e) => {
+				if (select(o.value) && touchTap) flashTooltip(e.currentTarget);
+			}}
 			{onkeydown}
 			use:tooltip
 		>
