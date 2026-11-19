@@ -87,7 +87,7 @@ If `add-user.sh` reports that HTTPS is off for your tailnet, open the link it pr
    ```sh
    sudo /opt/romp/deploy/install.sh
    ```
-   This installs Bun, pnpm, tsgo, Node, git, mergiraf and gh, and creates the `romp` group and service user. It also builds the web app, puts `romp` and `romp-gateway` on PATH, initialises `/srv/romp`, and starts `romp-queue.service`. Re-run it after every update, or switch on automatic updates with `sudo systemctl enable --now romp-update.timer`: it pulls new commits from GitHub every 10 minutes and re-runs `install.sh` once no agent is mid-turn ([details](docs/deploy.md#updating)).
+   This installs Bun, pnpm, tsgo, Node, git, mergiraf, gh and the libraries headless Chrome needs (for omp's browser tool), and creates the `romp` group and service user. It also builds the web app, puts `romp` and `romp-gateway` on PATH, initialises `/srv/romp`, and starts `romp-queue.service`. Re-run it after every update, or switch on automatic updates with `sudo systemctl enable --now romp-update.timer`: it pulls new commits from GitHub every 10 minutes and re-runs `install.sh` once no agent is mid-turn ([details](docs/deploy.md#updating)).
 3. **Give the merge queue credentials** so it can push and resolve conflicts. They belong to the `romp` service user, which only the queue runs as, so nobody else's account sees them. Run these once on the VM:
    ```sh
    sudo -iu romp gh auth login     # or an SSH deploy key in /var/lib/romp/.ssh

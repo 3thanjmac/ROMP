@@ -29,6 +29,13 @@ if ! command -v gh >/dev/null; then
 	apt-get install -y -qq gh >/dev/null
 fi
 
+step "Headless Chrome libraries (omp's browser tool)"
+# omp downloads its own Chrome into ~/.omp/puppeteer; on a server install it can't start
+# without these shared libraries, and pages render as blank boxes without a font.
+apt-get install -y -qq libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libatspi2.0-0t64 libcups2t64 \
+	libxkbcommon0 libasound2t64 libgbm1 libcairo2 libpango-1.0-0 libxcomposite1 libxdamage1 \
+	libxfixes3 libxrandr2 fonts-liberation >/dev/null
+
 step "Bun (system-wide in /usr/local)"
 if ! command -v bun >/dev/null; then
 	curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash >/dev/null

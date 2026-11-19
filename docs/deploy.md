@@ -158,7 +158,7 @@ test = "pnpm test"
 
 ## 8. Shared OMP settings
 
-`deploy/omp-defaults/` is laid out like `~/.omp/agent/`. Put the OMP files everyone should start with there (`config.yml`, `RULES.md`, `skills/`, `commands/`, `lsp.json`, ...). `add-user.sh` copies them to a new user, and every run of `install.sh` brings each user (and the `romp` service user) up to date. The VM has no display or desktop browser, so leave out anything that needs one (browser MCP servers, sign-in windows). Users are never overwritten:
+`deploy/omp-defaults/` is laid out like `~/.omp/agent/`. Put the OMP files everyone should start with there (`config.yml`, `RULES.md`, `skills/`, `commands/`, `lsp.json`, ...). `add-user.sh` copies them to a new user, and every run of `install.sh` brings each user (and the `romp` service user) up to date. The VM has no display, so leave out anything that opens a visible window (headed browser MCP servers, sign-in windows). omp's own browser tool runs Chrome headless and works, because `install.sh` installs the libraries it needs. Users are never overwritten:
 
 - `config.yml` and other YAML/JSON files merge per setting. A setting follows the shipped value until the user changes it; from then on their value is kept.
 - Other files are replaced only while the user hasn't edited them. A file the user deleted is not restored, and a file dropped from `omp-defaults/` is removed only if the user never edited it.
