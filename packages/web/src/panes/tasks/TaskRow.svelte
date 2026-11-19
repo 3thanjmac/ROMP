@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { RepoInfo, TaskInfo } from "@romp/protocol";
+	import { tick } from "svelte";
 	import { errorMessage } from "../../lib/api";
 	import { Icons } from "../../lib/icons";
 	import AsyncButton from "../../lib/ui/AsyncButton.svelte";
@@ -19,6 +20,12 @@
 	let showLog = $state(false);
 	let confirmDelete = $state(false);
 	let deleteError: string | null = $state(null);
+	let setupError: string | null = $state(null);
+	let setupStatus: HTMLElement | undefined = $state();
+	let setupActions: HTMLElement | undefined = $state();
+
+	const settingUp = $derived(task.setup?.state === "running");
+	const setupFailed = $derived(task.setup?.state === "failed");
 
 	const conflictLine = $derived.by(() => {
 		const files = task.conflictFiles;
@@ -37,6 +44,20 @@
 			deleteError = errorMessage(err);
 		}
 	}
+
+	async function retrySetup() {
+		const hadFocus = setupActions?.contains(document.activeElement) ?? false;
+		try {
+			await data.retrySetup(task);
+		} catch (err) {
+			setupError = errorMessage(err);
+			return;
+		}
+		setupError = null;
+		// The Retry button is gone with the failure; keep keyboard focus on the row's new status.
+		await tick();
+		if (hadFocus) setupStatus?.focus();
+	}
 </script>
 
 <li class="task">
@@ -46,7 +67,13 @@
 				<TaskStatusChip status={task.status} />
 				<span class="title truncate" use:tooltip={task.title}>{task.title}</span>
 			</div>
-			{#if task.status === "conflict" && conflictLine}
+			{#if settingUp}
+				<span class="meta setup-line" role="status" tabindex="-1" bind:this={setupStatus}>
+					<Icon icon={Icons.Reload} size="xs" spin />Setting up…
+				</span>
+			{:else if setupFailed}
+				<span class="meta setup-line failed" role="status">Setup failed.</span>
+			{:else if task.status === "conflict" && conflictLine}
 				<span class="meta truncate">{conflictLine}</span>
 			{:else if (task.status === "queued" || task.status === "landing") && task.landing?.message}
 				<span class="meta truncate">{task.landing.message}</span>
@@ -68,7 +95,7 @@
 			{#if task.dirty}
 				<span class="dirty" role="img" aria-label="Uncommitted changes" use:tooltip></span>
 			{/if}
-			{#if task.status === "active"}
+			{#if task.status === "active" && !settingUp && !setupFailed}
 				<Button
 					size="sm"
 					variant="primary"
@@ -100,10 +127,22 @@
 				<MenuItem icon={Icons.Agent} onselect={() => void data.openAgent(task)}>Open agent</MenuItem>
 				<MenuItem icon={Icons.Terminal} onselect={() => data.openTerminal(task)}>Open terminal here</MenuItem>
 				<MenuItem icon={Icons.Files} onselect={() => data.openFiles(task)}>Open files here</MenuItem>
+				<MenuItem icon={Icons.Browser} onselect={() => data.preview(task)}>Preview</MenuItem>
 				<MenuItem icon={Icons.Trash} danger onselect={() => ((deleteError = null), (confirmDelete = true))}>Delete task</MenuItem>
 			</Menu>
 		</div>
 	</div>
+	{#if setupFailed}
+		<div class="setup-actions" bind:this={setupActions}>
+			{#if setupError}<p class="field-error">Couldn't retry setup: {setupError}</p>{/if}
+			{#if task.setup?.termId}
+				<Button size="sm" variant="secondary" icon={Icons.Terminal} onclick={() => data.openSetupLog(task)}>Show log</Button>
+			{/if}
+			<AsyncButton size="sm" variant="primary" icon={Icons.Reload} pendingLabel="Retrying…" action={retrySetup}>
+				Retry setup
+			</AsyncButton>
+		</div>
+	{/if}
 	{#if showLog && task.status === "failed"}
 		<div class="log">
 			<p class="log-title">{task.landing?.message ?? "The merge queue rejected this task."}</p>
@@ -179,6 +218,26 @@
 		align-items: center;
 		gap: var(--sp-1);
 		font-size: var(--text-sm);
+	}
+	.setup-line {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--sp-1);
+		&.failed {
+			color: var(--danger);
+		}
+	}
+	.setup-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: var(--sp-2);
+		margin: 0 var(--sp-2) var(--sp-2);
+		.field-error {
+			flex-basis: 100%;
+			margin: 0;
+		}
 	}
 	.log {
 		display: grid;

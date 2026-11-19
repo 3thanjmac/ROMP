@@ -78,6 +78,7 @@ const task = (status: TaskInfo["status"], createdAt: number): TaskInfo => ({
 	behind: 0,
 	conflictFiles: [],
 	landing: null,
+	setup: null,
 });
 
 describe("tasks", () => {

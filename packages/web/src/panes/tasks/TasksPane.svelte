@@ -21,10 +21,21 @@
 	let adding = $state(false);
 	let expanded: string | null = $state(null);
 	let settingsName: string | null = $state(null);
+	/** Set when another window asked for the settings at the Dev command. */
+	let settingsFocus: "dev" | undefined = $state(undefined);
 	/** The remembered repo, pinned to the top once when the window opens; undefined until the first load. */
 	let pinned: string | null | undefined = $state(undefined);
 
 	$effect(() => data.start());
+
+	// A Browser window's "Set dev command" asks, through this window's props, for a repo's settings at Dev.
+	$effect(() => {
+		const name = win.props.settings;
+		if (!name || data.repos === null) return;
+		settingsName = name;
+		settingsFocus = "dev";
+		pane.setProps({ settings: undefined });
+	});
 
 	const filtered = $derived(
 		data.repos === null ? null : win.props.repo ? data.repos.filter((r) => r.name === win.props.repo) : data.repos,
@@ -94,7 +105,7 @@
 					{data}
 					expanded={expanded === repo.name}
 					ontoggle={() => toggle(repo.name)}
-					onsettings={() => (settingsName = repo.name)}
+					onsettings={() => ((settingsName = repo.name), (settingsFocus = undefined))}
 					onagent={openAgent}
 				/>
 			{/each}
@@ -107,7 +118,13 @@
 </Dialog>
 
 {#if settingsRepo}
-	<RepoSettingsDialog repo={settingsRepo} {data} onclose={() => (settingsName = null)} ondeleted={deleted} />
+	<RepoSettingsDialog
+		repo={settingsRepo}
+		{data}
+		focus={settingsFocus}
+		onclose={() => (settingsName = null)}
+		ondeleted={deleted}
+	/>
 {/if}
 
 <style>

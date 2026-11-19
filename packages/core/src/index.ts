@@ -11,4 +11,16 @@ export {
 	setRepoEnv,
 	updateRepoSettings,
 } from "./repos.ts";
-export { createTask, getTask, listTasks, removeRepo, removeTask, renameTask, taskForPath } from "./tasks.ts";
+export {
+	createTask,
+	getTask,
+	listTasks,
+	readTaskSetup,
+	removeRepo,
+	removeTask,
+	renameTask,
+	resolveDevCommand,
+	taskForPath,
+	taskSetupCommand,
+	writeTaskSetup,
+} from "./tasks.ts";

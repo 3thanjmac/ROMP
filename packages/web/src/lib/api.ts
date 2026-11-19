@@ -4,6 +4,11 @@ import type {
 	AgentInfo,
 	AgentUsage,
 	ApiError,
+	CallbackRequest,
+	CallbackResult,
+	DevCommand,
+	DevServerInfo,
+	DevServerStart,
 	FsFile,
 	FsList,
 	FsOpRequest,
@@ -247,9 +252,22 @@ export const api = {
 		ship: (repo: string, slug: string, req: TaskShip = {}) =>
 			request<TaskInfo>("POST", `/api/tasks/${q(repo)}/${q(slug)}/ship`, req),
 		remove: (repo: string, slug: string) => request<unknown>("DELETE", `/api/tasks/${q(repo)}/${q(slug)}`),
+		retrySetup: (repo: string, slug: string) => request<TaskInfo>("POST", `/api/tasks/${q(repo)}/${q(slug)}/setup`),
 	},
 
 	ports: {
 		list: () => request<ListeningPort[]>("GET", "/api/ports"),
+	},
+
+	dev: {
+		list: () => request<DevServerInfo[]>("GET", "/api/dev"),
+		command: (cwd: string) => request<DevCommand>("GET", `/api/dev/command?cwd=${q(cwd)}`),
+		/** The server already running in `cwd`, else a new one; 422 `no_dev_command` when the folder has none. */
+		start: (cwd: string) => request<DevServerInfo>("POST", "/api/dev", { cwd } satisfies DevServerStart),
+		stop: (id: string) => request<undefined>("DELETE", `/api/dev/${q(id)}`),
+	},
+
+	callback: {
+		deliver: (url: string) => request<CallbackResult>("POST", "/api/callback", { url } satisfies CallbackRequest),
 	},
 };

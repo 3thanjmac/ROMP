@@ -13,6 +13,10 @@ class FrameUi {
 	settings = $state(location.hash === SETTINGS_HASH);
 	/** Workspace id whose rename dialog is open. */
 	renameWorkspace: string | null = $state(null);
+	/** "Finish sign-in…" asked the terminal window with this id to show its sign-in helper; the pane clears it. */
+	signInWindow: string | null = $state(null);
+	/** The sign-in helper dialog, for when no terminal is focused. */
+	signInDialog = $state(false);
 	/** Visible part of the active scroll strip as fractions of its scroll width (top bar minimap bracket). */
 	stripView = $state({ start: 0, end: 1 });
 	/** The phone page control is being dragged: windows switch without the carousel animation. */

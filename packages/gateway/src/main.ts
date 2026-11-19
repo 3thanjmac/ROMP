@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { rompEnv, taskForPath } from "@romp/core";
+import { resolveDevCommand, rompEnv, taskForPath } from "@romp/core";
 import { MAX_UPLOAD_BYTES } from "@romp/protocol";
 import { realpathSync } from "node:fs";
 import { homedir, hostname, userInfo } from "node:os";
@@ -9,6 +9,7 @@ import { ompTitleGenerator } from "./agents/title.ts";
 import { createApp } from "./app.ts";
 import { Auth } from "./auth.ts";
 import { ConfigError, loadConfig } from "./config.ts";
+import { DevServerManager } from "./devservers.ts";
 import { Files } from "./files.ts";
 import { RepoSearch } from "./github.ts";
 import { passwd } from "./passwd.ts";
@@ -49,6 +50,12 @@ async function main(): Promise<void> {
 	const sessions = new LanSessions(cfg.passwordFile, cfg.stateDir);
 	await sessions.load();
 	const terms = new TerminalManager();
+	const dev = new DevServerManager({
+		terms,
+		shell: cfg.shell,
+		resolve: (cwd) => resolveDevCommand(romp, cwd),
+		gatewayPort: cfg.listen.port,
+	});
 	const app = createApp({
 		cfg,
 		roots,
@@ -58,6 +65,7 @@ async function main(): Promise<void> {
 		auth: new Auth(cfg, sessions),
 		files: new Files(roots, home),
 		terms,
+		dev,
 		agents,
 		shellState: new ShellStateStore(cfg.stateDir),
 		sessions,
@@ -88,6 +96,7 @@ async function main(): Promise<void> {
 		stopping = true;
 		console.log(`romp-gateway: ${signal}, shutting down`);
 		void server.stop();
+		dev.shutdown();
 		terms.shutdown();
 		await agents.shutdown();
 		await sessions.flush();

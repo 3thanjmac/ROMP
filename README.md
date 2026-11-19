@@ -106,11 +106,13 @@ If `add-user.sh` reports that HTTPS is off for your tailnet, open the link it pr
    romp repo add git@github.com:you/project.git
    romp repo set project land=pr   # optional: land via PR + auto-merge instead of pushing to main
    ```
-   Optionally commit a `.romp.toml` to the project with the commands for new worktrees and the merge queue:
+   Optionally commit a `.romp.toml` to the project with its commands: `setup` runs in every new task worktree (in a terminal you can open from the task's row) and before the merge queue's tests, `test` is what the merge queue runs before landing, and `dev` is what **Start dev server** runs in the Browser window and a task's **Preview**:
    ```toml
    setup = "pnpm install --frozen-lockfile"
    test = "pnpm test"
+   dev = "pnpm dev"
    ```
+   Without a `.romp.toml`, ROMP detects them: the lockfile gives `setup` (`pnpm install --frozen-lockfile`, `bun install --frozen-lockfile`, `yarn install --frozen-lockfile` or `npm ci`), and `package.json`'s `test` and `dev` scripts run with that package manager. Override any of them for everyone on the VM in the repo's **Settings** (gear in Tasks, under Commands) or with `romp repo set project dev="pnpm dev --host"` (`-` drops the override, an empty value disables the command).
 7. **Optional: LAN access without Tailscale.** `sudo romp-lan enable` serves the same `ts.net` address on the VM's LAN IP through Caddy. Add a local DNS record on your router pointing that name at the VM, and have each person set a sign-in password with `romp-gateway passwd`. See [docs/deploy.md](docs/deploy.md#9-lan-access-without-tailscale-optional).
 
 ### Gateway configuration
@@ -137,6 +139,7 @@ The gateway trusts the Tailscale identity headers only on connections from socke
 - In **Tasks**, pick a repo and describe the work. ROMP creates a worktree and branch, starts an agent there, and opens its window. Keep prompting; changes are committed and synced after each agent run.
 - Press **Ship** in Tasks, or type `/ship` in the agent, when the task is done. The task card follows it through queued → landing → landed. If tests fail, the log appears there and the agent is asked to fix it.
 - From a terminal on the VM, `romp task list`, `romp status` and `romp --help` show the same state.
+- A CLI sign-in on the VM (`wrangler login`, `codex login`…) waits on a `localhost` port your phone can't reach. Approve it, copy the address your browser ended on, and tap **Paste from clipboard** in the terminal's sign-in banner (or **Finish sign-in…** in the palette).
 
 ## Development
 

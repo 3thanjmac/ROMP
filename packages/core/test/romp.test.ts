@@ -7,7 +7,18 @@ import { type RompEnv, rompEnv } from "../src/env.ts";
 import { RompError } from "../src/errors.ts";
 import { preReceive, runOnce } from "../src/queue.ts";
 import { addRepo, clearRepoEnv, initRoot, listRepos, repoBranches, setRepoEnv, updateRepoSettings } from "../src/repos.ts";
-import { createTask, getTask, listTasks, removeRepo, removeTask, renameTask, taskForPath } from "../src/tasks.ts";
+import {
+	createTask,
+	getTask,
+	listTasks,
+	removeRepo,
+	removeTask,
+	renameTask,
+	resolveDevCommand,
+	taskForPath,
+	taskSetupCommand,
+	writeTaskSetup,
+} from "../src/tasks.ts";
 
 const T = fs.mkdtempSync(path.join(os.tmpdir(), "romp-test-"));
 const root = path.join(T, "root");
@@ -346,5 +357,53 @@ describe("romp", () => {
 		expect((await listRepos(alice)).map((r) => r.name)).not.toContain("envy");
 		expect((await listTasks(alice)).map((t) => t.repo)).not.toContain("envy");
 		await expect(removeRepo(ethan, "envy")).rejects.toMatchObject({ code: "not_found" });
+	});
+
+	test("commands: detected from the integration branch, hub overrides win, task setup state", async () => {
+		const seed = path.join(T, "seed-node");
+		sh(T, "git", "init", "-q", "--initial-branch=main", seed);
+		write(seed, "package.json", JSON.stringify({ scripts: { test: "vitest", dev: "vite" } }));
+		write(seed, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
+		sh(seed, "git", "add", "-A");
+		sh(seed, "git", "commit", "-q", "-m", "seed");
+		const url = path.join(T, "node-upstream.git");
+		sh(T, "git", "clone", "-q", "--bare", seed, url);
+
+		const repo = await addRepo(ethan, { url, name: "nodeapp" });
+		expect(repo).toMatchObject({ setup: "pnpm install --frozen-lockfile", test: "pnpm test", dev: "pnpm dev" });
+		expect(repo.commands.setup).toEqual({
+			source: "detected",
+			fallback: "pnpm install --frozen-lockfile",
+			fallbackSource: "detected",
+			detectedFrom: "pnpm-lock.yaml",
+		});
+		expect(repo.commands.dev).toMatchObject({ source: "detected", detectedFrom: "package.json" });
+
+		const set = await updateRepoSettings(ethan, "nodeapp", { dev: "pnpm dev --host", test: "", setup: "true" });
+		expect(set).toMatchObject({ dev: "pnpm dev --host", test: null, setup: "true" });
+		expect(set.commands.dev).toEqual({ source: "settings", fallback: "pnpm dev", fallbackSource: "detected", detectedFrom: "package.json" });
+		expect(set.commands.test.source).toBe("settings");
+
+		const t = await createTask(ethan, { repo: "nodeapp", title: "try it", slug: "try-it" });
+		expect(t.setup).toBeNull();
+		expect(await resolveDevCommand(ethan, t.path)).toBe("pnpm dev --host");
+		expect(taskSetupCommand(ethan, "nodeapp", "try-it")).toBe("true");
+		writeTaskSetup(ethan, "nodeapp", "try-it", { state: "running", termId: "t1", exitCode: null });
+		expect((await getTask(ethan, "nodeapp", "try-it")).setup).toEqual({ state: "running", termId: "t1", exitCode: null });
+		// A run whose owning process is gone (gateway restarted) reads as failed.
+		const dead = Bun.spawnSync(["true"]).pid;
+		const record = path.join(ethan.workRoot, "nodeapp.git", "romp", "try-it.setup.json");
+		fs.writeFileSync(record, JSON.stringify({ state: "running", termId: "t1", exitCode: null, pid: dead }));
+		expect((await getTask(ethan, "nodeapp", "try-it")).setup).toEqual({ state: "failed", termId: null, exitCode: null });
+		expect((await listTasks(ethan)).map((x) => x.slug)).toContain("try-it");
+
+		const reset = await updateRepoSettings(ethan, "nodeapp", { dev: null, test: null });
+		expect(reset).toMatchObject({ dev: "pnpm dev", test: "pnpm test" });
+		expect(reset.commands.dev.source).toBe("detected");
+		expect(await resolveDevCommand(ethan, t.path)).toBe("pnpm dev");
+
+		await removeTask(ethan, "nodeapp", "try-it");
+		expect(fs.existsSync(record)).toBe(false);
+		await removeRepo(ethan, "nodeapp");
 	});
 });

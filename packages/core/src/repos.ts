@@ -1,6 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { LandMode, RepoAdd, RepoBranches, RepoInfo, RepoSettingsUpdate } from "@romp/protocol";
+import type {
+	LandMode,
+	RepoAdd,
+	RepoBranches,
+	RepoCommandName,
+	RepoCommandSource,
+	RepoInfo,
+	RepoSettingsUpdate,
+} from "@romp/protocol";
 import {
 	cloneDir,
 	hubDir,
@@ -29,28 +37,27 @@ import {
 } from "./proc.ts";
 import { landingsPending, queueLock } from "./status.ts";
 
-/** Hub-side settings in `$ROMP_ROOT/repos/<name>.toml`. `setup`/`test` override `.romp.toml` when not null. */
+/** Hub-side settings in `$ROMP_ROOT/repos/<name>.toml`. Commands override `.romp.toml` when not null. */
 export interface RepoSettings {
 	remote: string | null;
 	branch: string;
 	land: LandMode;
 	setup: string | null;
 	test: string | null;
+	dev: string | null;
 	createdAt: number;
 }
 
-export interface RepoCommands {
-	setup: string | null;
-	test: string | null;
-}
+export const COMMAND_NAMES: readonly RepoCommandName[] = ["setup", "test", "dev"];
+
+export type RepoCommands = Record<RepoCommandName, string | null>;
 
 const tomlString = (value: string) => JSON.stringify(value);
 
 function settingsToToml(s: RepoSettings): string {
 	const lines = ["# Managed by romp.", `branch = ${tomlString(s.branch)}`, `land = ${tomlString(s.land)}`];
 	if (s.remote !== null) lines.push(`remote = ${tomlString(s.remote)}`);
-	if (s.setup !== null) lines.push(`setup = ${tomlString(s.setup)}`);
-	if (s.test !== null) lines.push(`test = ${tomlString(s.test)}`);
+	for (const key of COMMAND_NAMES) if (s[key] !== null) lines.push(`${key} = ${tomlString(s[key])}`);
 	lines.push(`createdAt = ${s.createdAt}`);
 	return `${lines.join("\n")}\n`;
 }
@@ -72,6 +79,7 @@ export function readSettings(env: RompEnv, name: string): RepoSettings {
 		land: raw.land === "pr" ? "pr" : "push",
 		setup: optString(raw.setup),
 		test: optString(raw.test),
+		dev: optString(raw.dev),
 		createdAt: typeof raw.createdAt === "number" ? raw.createdAt : 0,
 	};
 }
@@ -80,24 +88,107 @@ function writeSettings(env: RompEnv, name: string, settings: RepoSettings): void
 	writeFileAtomic(settingsFile(env, name), settingsToToml(settings));
 }
 
-/** Parse a repository's `.romp.toml` (`setup`, `test`). Invalid files count as empty. */
+/** Parse a repository's `.romp.toml` (`setup`, `test`, `dev`). Invalid files count as empty. */
 export function parseRompToml(text: string | null): RepoCommands {
-	if (!text) return { setup: null, test: null };
+	const none = { setup: null, test: null, dev: null };
+	if (!text) return none;
 	try {
 		const raw = Bun.TOML.parse(text) as Record<string, unknown>;
-		return { setup: optString(raw.setup), test: optString(raw.test) };
+		return { setup: optString(raw.setup), test: optString(raw.test), dev: optString(raw.dev) };
 	} catch {
-		return { setup: null, test: null };
+		return none;
 	}
 }
 
-/** Hub settings win over the repository's `.romp.toml`; an empty string disables the command. */
-export function effectiveCommands(settings: RepoSettings, fromRepo: RepoCommands): RepoCommands {
-	const pick = (override: string | null, fallback: string | null) => {
-		const value = override ?? fallback;
-		return value?.trim() ? value : null;
+/** Package managers by lockfile, in the order they are preferred when a tree has several. */
+export const LOCKFILES = [
+	{ file: "pnpm-lock.yaml", install: "pnpm install --frozen-lockfile", run: "pnpm" },
+	{ file: "bun.lock", install: "bun install --frozen-lockfile", run: "bun run" },
+	{ file: "bun.lockb", install: "bun install --frozen-lockfile", run: "bun run" },
+	{ file: "yarn.lock", install: "yarn install --frozen-lockfile", run: "yarn" },
+	{ file: "package-lock.json", install: "npm ci", run: "npm run" },
+] as const;
+
+export interface DetectedCommands {
+	commands: RepoCommands;
+	/** File each detected command came from, e.g. `pnpm-lock.yaml` or `package.json`. */
+	from: RepoCommands;
+}
+
+/**
+ * Commands guessed from a tree's top-level files: the lockfile's install command for `setup`, and package.json's
+ * `test`/`dev` scripts run with that package manager (npm without a lockfile).
+ */
+export function detectCommands(files: ReadonlySet<string>, packageJson: string | null): DetectedCommands {
+	const commands: RepoCommands = { setup: null, test: null, dev: null };
+	const from: RepoCommands = { setup: null, test: null, dev: null };
+	const lock = LOCKFILES.find((l) => files.has(l.file));
+	if (lock) {
+		commands.setup = lock.install;
+		from.setup = lock.file;
+	}
+	let scripts: Record<string, unknown> = {};
+	try {
+		const pkg = packageJson ? (JSON.parse(packageJson) as { scripts?: unknown }) : null;
+		if (pkg?.scripts && typeof pkg.scripts === "object") scripts = pkg.scripts as Record<string, unknown>;
+	} catch {}
+	for (const key of ["test", "dev"] as const) {
+		const script = scripts[key];
+		if (typeof script !== "string" || !script.trim()) continue;
+		commands[key] = `${lock?.run ?? "npm run"} ${key}`;
+		from[key] = "package.json";
+	}
+	return { commands, from };
+}
+
+/** Detect commands from the files in a directory on disk. */
+export function detectCommandsIn(dir: string): DetectedCommands {
+	const files = new Set<string>(LOCKFILES.map((l) => l.file).filter((f) => fs.existsSync(path.join(dir, f))));
+	let packageJson: string | null = null;
+	try {
+		packageJson = fs.readFileSync(path.join(dir, "package.json"), "utf8");
+	} catch {}
+	return detectCommands(files, packageJson);
+}
+
+const blankToNull = (value: string | null) => (value?.trim() ? value : null);
+
+/**
+ * Hub settings win over the repository's `.romp.toml`, which wins over detection. A hub setting of "" disables the
+ * command; so does an empty value in `.romp.toml`.
+ */
+export function effectiveCommands(
+	settings: Pick<RepoSettings, RepoCommandName>,
+	fromRepo: RepoCommands,
+	detected: DetectedCommands,
+): RepoCommands {
+	const sources = commandSources(settings, fromRepo, detected);
+	const value = (key: RepoCommandName) => {
+		const source = sources[key].source;
+		if (source === "settings") return blankToNull(settings[key]);
+		if (source === "repo") return blankToNull(fromRepo[key]);
+		return source === "detected" ? detected.commands[key] : null;
 	};
-	return { setup: pick(settings.setup, fromRepo.setup), test: pick(settings.test, fromRepo.test) };
+	return { setup: value("setup"), test: value("test"), dev: value("dev") };
+}
+
+/** Where each command comes from, and what Reset (dropping the hub override) falls back to. */
+export function commandSources(
+	settings: Pick<RepoSettings, RepoCommandName>,
+	fromRepo: RepoCommands,
+	detected: DetectedCommands,
+): Record<RepoCommandName, RepoCommandSource> {
+	const one = (key: RepoCommandName): RepoCommandSource => {
+		const fallbackSource = fromRepo[key] !== null ? "repo" : detected.commands[key] !== null ? "detected" : null;
+		const fallback = fallbackSource === "repo" ? blankToNull(fromRepo[key]) : detected.commands[key];
+		return {
+			source: settings[key] !== null ? "settings" : fallbackSource,
+			fallback,
+			fallbackSource,
+			detectedFrom: fallbackSource === "detected" ? detected.from[key] : null,
+		};
+	};
+	return { setup: one("setup"), test: one("test"), dev: one("dev") };
 }
 
 /** git against a hub repository, which may belong to another member of the romp group. */
@@ -107,15 +198,23 @@ export function hubGit(env: RompEnv, repo: string, args: string[], allowFail = f
 
 export async function getRepo(env: RompEnv, name: string): Promise<RepoInfo> {
 	const settings = readSettings(env, name);
-	const toml = await hubGit(env, name, ["show", `refs/heads/${settings.branch}:.romp.toml`], true);
-	const commands = effectiveCommands(settings, parseRompToml(toml.code === 0 ? toml.stdout : null));
+	const ref = `refs/heads/${settings.branch}`;
+	const [toml, pkg, tree] = await Promise.all([
+		hubGit(env, name, ["show", `${ref}:.romp.toml`], true),
+		hubGit(env, name, ["show", `${ref}:package.json`], true),
+		hubGit(env, name, ["ls-tree", "--name-only", "-z", ref], true),
+	]);
+	const fromRepo = parseRompToml(toml.code === 0 ? toml.stdout : null);
+	const files = new Set(tree.code === 0 ? tree.stdout.split("\0") : []);
+	const detected = detectCommands(files, pkg.code === 0 ? pkg.stdout : null);
+	const commands = effectiveCommands(settings, fromRepo, detected);
 	return {
 		name,
 		remote: settings.remote,
 		branch: settings.branch,
 		land: settings.land,
-		setup: commands.setup,
-		test: commands.test,
+		...commands,
+		commands: commandSources(settings, fromRepo, detected),
 		cloned: fs.existsSync(cloneDir(env, name)),
 		env: fs.existsSync(repoEnvFile(env, name)),
 	};
@@ -245,6 +344,7 @@ export async function addRepo(env: RompEnv, add: RepoAdd): Promise<RepoInfo> {
 		land: "push",
 		setup: null,
 		test: null,
+		dev: null,
 		createdAt: Date.now(),
 	});
 	return getRepo(env, name);
@@ -267,8 +367,7 @@ export async function updateRepoSettings(env: RompEnv, name: string, update: Rep
 			throw new RompError("bad_request", "A hub-only repo cannot land through pull requests");
 		settings.land = update.land;
 	}
-	if (update.setup !== undefined) settings.setup = update.setup;
-	if (update.test !== undefined) settings.test = update.test;
+	for (const key of COMMAND_NAMES) if (update[key] !== undefined) settings[key] = update[key];
 	const branch = update.branch?.trim();
 	if (branch === undefined || branch === settings.branch) {
 		writeSettings(env, name, settings);
@@ -277,7 +376,7 @@ export async function updateRepoSettings(env: RompEnv, name: string, update: Rep
 	await requireBranchName(env, branch);
 	requireHubWritable(env);
 	await withQueueIdle(env, name, "switching its branch", async () => {
-		const fresh = { ...readSettings(env, name), land: settings.land, setup: settings.setup, test: settings.test };
+		const fresh = { ...readSettings(env, name), land: settings.land, setup: settings.setup, test: settings.test, dev: settings.dev };
 		const ref = `refs/heads/${branch}`;
 		if (!(await hubGit(env, name, ["rev-parse", "-q", "--verify", ref], true)).stdout.trim()) {
 			if (fresh.remote === null) throw new RompError("bad_request", `The hub has no branch ${branch}`);

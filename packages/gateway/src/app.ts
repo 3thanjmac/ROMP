@@ -2,6 +2,7 @@ import {
 	addRepo,
 	clearRepoEnv,
 	createTask,
+	getTask,
 	listRepos,
 	listTasks,
 	readGitIdentity,
@@ -9,14 +10,17 @@ import {
 	removeTask,
 	renameTask,
 	repoBranches,
+	resolveDevCommand,
 	type RompEnv,
 	setRepoEnv,
 	shipTask,
+	taskForPath,
 	updateRepoSettings,
 	writeGitIdentity,
 } from "@romp/core";
 import {
 	type AgentClientMsg,
+	type DevCommand,
 	type GitIdentity,
 	type ListeningPort,
 	MAX_ENV_BYTES,
@@ -26,6 +30,7 @@ import {
 	type TaskCreated,
 	type TaskInfo,
 	type TermClientMsg,
+	parseLoopbackCallback,
 	THINKING_LEVELS,
 } from "@romp/protocol";
 import type { Server, WebSocketHandler } from "bun";
@@ -34,8 +39,10 @@ import { basename } from "node:path";
 import type { AgentManager } from "./agents/manager.ts";
 import { parseChoice } from "./agents/models.ts";
 import type { TitleGenerator } from "./agents/title.ts";
+import { deliverCallback } from "./callback.ts";
 import { type Auth, crossOriginError, type Identity } from "./auth.ts";
 import type { GatewayConfig } from "./config.ts";
+import type { DevServerManager } from "./devservers.ts";
 import { type Files, parseFsOp } from "./files.ts";
 import type { RepoSearch } from "./github.ts";
 import {
@@ -56,11 +63,22 @@ import {
 import type { Roots } from "./paths.ts";
 import { listeningSockets, socketProcessNames } from "./procnet.ts";
 import { parseEndpoint, parseSubscription, type PushService } from "./push.ts";
-import { checkPort, parseProxyPath, proxyHttp, proxySocket, proxyWebSocket } from "./proxy.ts";
+import {
+	checkPort,
+	cookieProxyPort,
+	loopbackHost,
+	parseProxyPath,
+	prefixedTarget,
+	proxyHttp,
+	proxySocket,
+	proxyWebSocket,
+	refererProxyPort,
+} from "./proxy.ts";
 import { Router } from "./router.ts";
 import { type LanSessions, sessionCookie, sessionCookieName } from "./sessions.ts";
 import { MAX_STATE_BYTES, type ShellStateStore } from "./shellstate.ts";
 import { serveStatic } from "./static.ts";
+import { TaskSetups } from "./tasksetup.ts";
 import type { TerminalManager } from "./terminals.ts";
 import { errorMessage, isRecord } from "./util.ts";
 import type { Socket, WsData } from "./ws.ts";
@@ -77,6 +95,7 @@ export interface AppDeps {
 	auth: Auth;
 	files: Files;
 	terms: TerminalManager;
+	dev: DevServerManager;
 	agents: AgentManager;
 	shellState: ShellStateStore;
 	sessions: LanSessions;
@@ -128,7 +147,23 @@ export function createApp(deps: AppDeps) {
 			if (proxy) {
 				if ("redirect" in proxy) return new Response(null, { status: 308, headers: { location: proxy.redirect } });
 				checkPort(proxy.target, deps.cfg.listen.port);
-				return isUpgrade ? await proxyWebSocket(req, url, proxy.target, server) : await proxyHttp(req, url, proxy.target);
+				const host = loopbackHost(proxy.target.port, listeningSockets());
+				return isUpgrade
+					? await proxyWebSocket(req, url, proxy.target, host, server)
+					: await proxyHttp(req, url, proxy.target, host);
+			}
+			if (identity !== null) {
+				// A page under /proxy/<port>/ asking for a root-absolute path: send it back under its prefix. ROMP's own
+				// sockets all live under /ws/, so any other upgrade is a proxied page's (Vite HMR sends no Referer).
+				const foreignSocket = isUpgrade && !url.pathname.startsWith("/ws/");
+				const port = refererProxyPort(req) ?? (foreignSocket ? cookieProxyPort(req) : null);
+				if (port !== null && port !== deps.cfg.listen.port) {
+					if (isUpgrade) {
+						return await proxyWebSocket(req, url, prefixedTarget(port, url), loopbackHost(port, listeningSockets()), server);
+					}
+					const location = `/proxy/${port}${url.pathname}${url.search}`;
+					return new Response(null, { status: 307, headers: { location, "cache-control": "no-store" } });
+				}
 			}
 			if (url.pathname.startsWith("/ws/")) {
 				if (!isUpgrade) throw badRequest("Expected a WebSocket upgrade");
@@ -255,6 +290,7 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 	const { cfg, roots, files, terms, agents, romp } = deps;
 	const router = new Router<Ctx>();
 	const query = (ctx: Ctx, key: string) => ctx.url.searchParams.get(key);
+	const setups = new TaskSetups(terms, romp, cfg.shell);
 
 	router.on("GET", "/api/me", ({ identity }) =>
 		json({
@@ -410,6 +446,33 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 		return json(ports);
 	});
 
+	// ── Dev servers ──
+	router.on("GET", "/api/dev", () => json(deps.dev.list()));
+	router.on("GET", "/api/dev/command", async (ctx) => {
+		const cwd = await requireDir(roots, query(ctx, "cwd"));
+		return json({
+			cwd,
+			command: await resolveDevCommand(romp, cwd),
+			repo: taskForPath(romp, cwd)?.repo ?? null,
+		} satisfies DevCommand);
+	});
+	router.on("POST", "/api/dev", async ({ req }) => {
+		const cwd = await requireDir(roots, requireString(await readJson(req, SMALL_BODY), "cwd"));
+		return json(await deps.dev.start(cwd));
+	});
+	router.on("DELETE", "/api/dev/:id", async (_ctx, { id = "" }) => {
+		if (!(await deps.dev.stop(id))) throw notFound("Unknown dev server");
+		return noContent();
+	});
+
+	// ── Sign-in callback ──
+	router.on("POST", "/api/callback", async ({ req }) => {
+		const target = parseLoopbackCallback(requireString(await readJson(req, SMALL_BODY), "url"));
+		if (!target) throw badRequest("That isn't a localhost address. Copy the full address your browser ended on.");
+		const uid = process.getuid?.() ?? -1;
+		return json(await deliverCallback(target, { ownPort: cfg.listen.port, uid, listeners: listeningSockets() }));
+	});
+
 	// ── Shell state ──
 	router.on("GET", "/api/state", async () => json(await deps.shellState.get()));
 	router.on("PUT", "/api/state", async ({ req }) => {
@@ -432,6 +495,7 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 	});
 	router.on("DELETE", "/api/repos/:name", async (_ctx, { name = "" }) => {
 		await removeRepo(romp, name);
+		setups.discardRepo(name);
 		await agents.removeForRepo(name);
 		return noContent();
 	});
@@ -443,11 +507,11 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 			if (body.land !== "push" && body.land !== "pr") throw badRequest(`"land" must be "push" or "pr"`);
 			update.land = body.land;
 		}
-		for (const key of ["setup", "test"] as const) {
+		for (const key of ["setup", "test", "dev"] as const) {
 			const value = body[key];
 			if (value === undefined) continue;
 			if (value !== null && typeof value !== "string") throw badRequest(`"${key}" must be a string or null`);
-			update[key] = value === "" ? null : value;
+			update[key] = value;
 		}
 		if (body.branch !== undefined) update.branch = requireString(body, "branch");
 		return json(await updateRepoSettings(romp, name, update));
@@ -456,7 +520,7 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 		json(await setRepoEnv(romp, name, await readBytes(req, MAX_ENV_BYTES))),
 	);
 	router.on("DELETE", "/api/repos/:name/env", async (_ctx, { name = "" }) => json(await clearRepoEnv(romp, name)));
-	router.on("GET", "/api/tasks", async () => json(await listTasks(romp)));
+	router.on("GET", "/api/tasks", async () => json((await listTasks(romp)).map((t) => setups.view(t))));
 	router.on("POST", "/api/tasks", async ({ req }) => {
 		const body = await readJson(req, SMALL_BODY);
 		const prompt = optionalString(body, "prompt")?.trim();
@@ -468,7 +532,10 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 			title: requireString(body, "title"),
 			slug: optionalString(body, "slug") || undefined,
 		});
-		const agent = prompt ? agents.create(await requireDir(roots, task.path), task.title, prompt, choice).info() : null;
+		const cwd = await requireDir(roots, task.path);
+		// Setup and the agent both start now; the agent doesn't wait for dependencies to install.
+		task.setup = setups.start(task, cwd);
+		const agent = prompt ? agents.create(cwd, task.title, prompt, choice).info() : null;
 		if (body.autoTitle && prompt && agent) {
 			retitle(task, agent.id, prompt).catch((err: unknown) =>
 				console.warn(`titling ${task.repo}/${task.slug}: ${errorMessage(err)}`),
@@ -478,9 +545,17 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 	});
 	router.on("POST", "/api/tasks/:repo/:slug/ship", async ({ req }, { repo = "", slug = "" }) => {
 		const body = await readJson(req, SMALL_BODY);
-		return json(await shipTask(romp, repo, slug, { message: optionalString(body, "message") || undefined }));
+		const task = await shipTask(romp, repo, slug, { message: optionalString(body, "message") || undefined });
+		return json(setups.view(task));
+	});
+	router.on("POST", "/api/tasks/:repo/:slug/setup", async (_ctx, { repo = "", slug = "" }) => {
+		const task = await getTask(romp, repo, slug);
+		const setup = setups.retry(task, await requireDir(roots, task.path));
+		return json(setups.view({ ...task, setup }));
 	});
 	router.on("DELETE", "/api/tasks/:repo/:slug", async (_ctx, { repo = "", slug = "" }) => {
+		// Stop a setup still writing into the worktree before it is removed.
+		setups.discard(repo, slug);
 		await removeTask(romp, repo, slug);
 		await agents.removeForTask(repo, slug);
 		return noContent();

@@ -6,7 +6,7 @@ import { headText } from "./fsutil.ts";
 import { ensureMergeDriver, filesWithMarkers, unmergedFiles } from "./merge.ts";
 import { childEnv, git, gitOut, identityEnv, revParse, run, runShell } from "./proc.ts";
 import type { Job } from "./queue.ts";
-import { effectiveCommands, parseRompToml, type RepoSettings } from "./repos.ts";
+import { detectCommandsIn, effectiveCommands, parseRompToml, type RepoSettings } from "./repos.ts";
 
 /** A landing failure with the output that explains it. */
 export class LandError extends Error {
@@ -124,7 +124,8 @@ async function applyOnto(env: RompEnv, ctx: LandContext, base: string): Promise<
 
 async function runChecks(env: RompEnv, ctx: LandContext): Promise<void> {
 	const toml = await git(env, ctx.work, ["show", "HEAD:.romp.toml"], { allowFail: true });
-	const { setup, test } = effectiveCommands(ctx.settings, parseRompToml(toml.code === 0 ? toml.stdout : null));
+	const fromRepo = parseRompToml(toml.code === 0 ? toml.stdout : null);
+	const { setup, test } = effectiveCommands(ctx.settings, fromRepo, detectCommandsIn(ctx.work));
 	for (const [label, command, timeoutMs] of [
 		["setup", setup, SETUP_TIMEOUT_MS],
 		["test", test, TEST_TIMEOUT_MS],

@@ -14,6 +14,7 @@
 	import type { PaneContext } from "../../lib/shell/pane.svelte";
 	import { session } from "../../lib/shell/session.svelte";
 	import type { WindowOf } from "../../lib/shell/types";
+	import { frameUi } from "../../lib/shell/ui.svelte";
 	import { viewport } from "../../lib/shell/viewport.svelte";
 	import { terminalTheme, tokenPx } from "../../lib/theme";
 	import Banner from "../../lib/ui/Banner.svelte";
@@ -24,6 +25,8 @@
 	import ExtraKeys from "./ExtraKeys.svelte";
 	import { applyModifiers, type ModState } from "./keys";
 	import { type BufferText, copyText, snapshotBuffer, wordAt } from "./selection";
+	import SignInForm, { SIGN_IN_TEXT, type SignInPhase } from "./SignInForm.svelte";
+	import { findSignInPrompt, type SignInPrompt, tailText } from "./signin";
 
 	let { win, pane }: { win: WindowOf<"terminal">; pane: PaneContext<"terminal"> } = $props();
 
@@ -76,6 +79,13 @@
 	let refocusAfterSelect = false;
 	/** The replayed scrollback is being parsed: its old OSC 52 copies must not overwrite the clipboard again. */
 	let replaying = false;
+	/** Sign-in helper: shown for a detected OAuth prompt (keyed by its URL) or opened from the palette. */
+	let signIn = $state<{ port: number | null; key: string } | null>(null);
+	let signInPhase: SignInPhase = $state("idle");
+	let signInInput: HTMLInputElement | undefined = $state();
+	/** The last sign-in prompt seen, shown or not: Dismiss and replays must not bring the same one back. */
+	let seenAuthUrl: string | null = null;
+	let detectTimer: number | undefined;
 
 	const conn = $derived(socket?.state ?? "connecting");
 	const termId = $derived(win.props.termId);
@@ -396,6 +406,39 @@
 		},
 	};
 
+	/** Sign-ins whose prompt scrolled further up than this were not printed just now. */
+	const SIGN_IN_SCAN_ROWS = 100;
+	/** Output streams in many small writes; scan once they pause. */
+	const SIGN_IN_SCAN_MS = 250;
+
+	function scanSignIn(): SignInPrompt | null {
+		return term ? findSignInPrompt(tailText(term.buffer.active, term.cols, SIGN_IN_SCAN_ROWS)) : null;
+	}
+
+	/** Shows the sign-in helper when the output just printed a new OAuth prompt that waits on a loopback port. */
+	function detectSignIn() {
+		if (detectTimer !== undefined) return;
+		detectTimer = window.setTimeout(() => {
+			detectTimer = undefined;
+			const prompt = scanSignIn();
+			if (!prompt || prompt.authUrl === seenAuthUrl) return;
+			seenAuthUrl = prompt.authUrl;
+			signIn = { port: prompt.port, key: prompt.authUrl };
+			signInPhase = "idle";
+		}, SIGN_IN_SCAN_MS);
+	}
+
+	/** Opens the helper by hand (keeping one that is already open) and focuses its address field. */
+	async function openSignIn() {
+		if (!signIn || signInPhase === "done") {
+			signIn = { port: null, key: `manual:${Date.now()}` };
+			signInPhase = "idle";
+		}
+		await tick();
+		// After the palette has closed and handed focus back.
+		requestAnimationFrame(() => signInInput?.focus({ preventScroll: true }));
+	}
+
 	async function create() {
 		if (creating) return;
 		creating = true;
@@ -496,13 +539,17 @@
 					case "replay":
 						term.reset();
 						replaying = true;
-						term.write(msg.d, () => (replaying = false));
+						term.write(msg.d, () => {
+							replaying = false;
+							// A prompt in old scrollback is stale: remember it so live output doesn't bring it back.
+							seenAuthUrl = scanSignIn()?.authUrl ?? seenAuthUrl;
+						});
 						replayed = true;
 						refit();
 						sendResize();
 						break;
 					case "out":
-						term.write(msg.d);
+						term.write(msg.d, detectSignIn);
 						break;
 					case "resize":
 						break;
@@ -550,6 +597,15 @@
 
 	$effect(() => pane.onFocusRequest(() => term?.focus()));
 
+	// "Finish sign-in…" from the command palette, for sign-ins that weren't detected.
+	$effect(() => {
+		if (frameUi.signInWindow !== win.id) return;
+		untrack(() => {
+			frameUi.signInWindow = null;
+			void openSignIn();
+		});
+	});
+
 	// Copy follows the native selection, but only one inside this pane's selectable layer.
 	$effect(() => {
 		if (!snapshot) return;
@@ -568,6 +624,7 @@
 		cancelPress();
 		stopFling();
 		clearTimeout(copiedTimer);
+		clearTimeout(detectTimer);
 	});
 
 	function restart() {
@@ -607,6 +664,22 @@
 				<Button size="sm" onclick={() => pane.close()}>Close window</Button>
 			{/snippet}
 		</Banner>
+	{/if}
+	{#if signIn && !createError}
+		{#key signIn.key}
+			<Banner
+				tone={signInPhase === "failed" ? "danger" : signInPhase === "done" ? "neutral" : "info"}
+				text={SIGN_IN_TEXT[signInPhase]}
+			>
+				<SignInForm
+					port={signIn.port}
+					bind:phase={signInPhase}
+					bind:input={signInInput}
+					onclose={() => (signIn = null)}
+					onreturnfocus={() => term?.focus()}
+				/>
+			</Banner>
+		{/key}
 	{/if}
 	<div class="screen" hidden={!!createError}>
 		<div

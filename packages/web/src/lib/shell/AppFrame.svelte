@@ -8,6 +8,7 @@
 	import { shell } from "./shell.svelte";
 	import SettingsPage from "./SettingsPage.svelte";
 	import ShortcutSheet from "./ShortcutSheet.svelte";
+	import SignInDialog from "./SignInDialog.svelte";
 	import TopBar from "./TopBar.svelte";
 	import { frameUi } from "./ui.svelte";
 	import { viewport } from "./viewport.svelte";
@@ -34,6 +35,7 @@
 {/if}
 <ShortcutSheet />
 <RenameWorkspaceDialog />
+<SignInDialog />
 {#if frameUi.settings}<SettingsPage />{/if}
 
 <style>

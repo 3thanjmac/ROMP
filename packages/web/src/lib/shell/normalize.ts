@@ -22,9 +22,9 @@ function validProps(kind: unknown, p: Obj): boolean {
 		case "agent":
 			return optString(p.agentId) && typeof p.cwd === "string";
 		case "browser":
-			return typeof p.url === "string";
+			return typeof p.url === "string" && optString(p.cwd) && (p.start === undefined || typeof p.start === "boolean");
 		case "tasks":
-			return optString(p.repo);
+			return optString(p.repo) && optString(p.settings);
 		default:
 			return false;
 	}

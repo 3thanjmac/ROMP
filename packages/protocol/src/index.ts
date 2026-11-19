@@ -77,9 +77,18 @@ export interface AgentProps {
 export interface BrowserProps {
 	/** Either a proxied local port path (`/proxy/5173/`) or an absolute URL (e.g. a Selkies desktop). */
 	url: string;
+	/** Folder whose dev server the window starts and previews (the focused window's directory when opened). */
+	cwd?: string;
+	/** One-shot request (Tasks Preview): start `cwd`'s dev server and load it when ready. The pane clears it. */
+	start?: boolean;
 }
 export interface TasksProps {
 	repo?: string;
+	/**
+	 * One-shot request from another window: open this repo's settings dialog at its Dev command. The Tasks pane
+	 * clears it once handled.
+	 */
+	settings?: string;
 }
 
 export type WindowState =
@@ -371,13 +380,32 @@ export interface RepoInfo {
 	branch: string;
 	/** `push`: merge queue pushes to upstream `branch`. `pr`: opens a PR with auto-merge. Default `push`. */
 	land: LandMode;
-	/** Commands from the repo's `.romp.toml`, overridable in hub settings. */
+	/**
+	 * Effective commands: hub settings, else the repo's `.romp.toml` on `branch`, else detected from its files
+	 * (lockfile → install for `setup`, package.json `test`/`dev` scripts). Null when unset or disabled.
+	 */
 	setup: string | null;
 	test: string | null;
+	dev: string | null;
+	/** Where each command comes from, for the settings UI. */
+	commands: Record<RepoCommandName, RepoCommandSource>;
 	/** Whether the current user has a local clone (`~/romp/<name>.git`). */
 	cloned: boolean;
 	/** The current user uploaded a `.env` for this repo; every new task worktree gets a copy. */
 	env: boolean;
+}
+
+/** `setup` runs in every new task worktree, the merge queue runs `setup` + `test`, Start dev server runs `dev`. */
+export type RepoCommandName = "setup" | "test" | "dev";
+
+export interface RepoCommandSource {
+	/** `settings`: hub override; `repo`: `.romp.toml`; `detected`: lockfile / package.json. Null when none applies. */
+	source: "settings" | "repo" | "detected" | null;
+	/** The command without a hub override (what Reset restores): `.romp.toml`, else detected. */
+	fallback: string | null;
+	fallbackSource: "repo" | "detected" | null;
+	/** File a detected fallback came from, e.g. `pnpm-lock.yaml` or `package.json`. */
+	detectedFrom: string | null;
 }
 
 export type TaskStatus =
@@ -414,6 +442,19 @@ export interface TaskInfo {
 	behind: number;
 	conflictFiles: string[];
 	landing: LandingState | null;
+	/** The repo's setup command run in the new worktree; null when it never ran (no command). */
+	setup: TaskSetup | null;
+}
+
+/**
+ * `POST /api/tasks/:repo/:slug/setup` → `TaskInfo`: runs the setup command again in a new terminal. 409 while it is
+ * running, 422 `no_setup_command` when the repo has none.
+ */
+export interface TaskSetup {
+	state: "running" | "failed" | "done";
+	/** Terminal running (or that ran) the command, while the gateway still has it; attach to it for the log. */
+	termId: string | null;
+	exitCode: number | null;
 }
 
 /** `GET /api/repos` → `RepoInfo[]`. `POST /api/repos` body `RepoAdd` → `RepoInfo` (creates hub repo from upstream). */
@@ -425,8 +466,10 @@ export interface RepoAdd {
 /** `PUT /api/repos/:name/settings` body `RepoSettingsUpdate` → `RepoInfo`. */
 export interface RepoSettingsUpdate {
 	land?: LandMode;
+	/** null drops the hub override (falls back to `.romp.toml`, then detection); "" disables the command. */
 	setup?: string | null;
 	test?: string | null;
+	dev?: string | null;
 	/** New integration branch. Must exist upstream (fetched into the hub) or, for hub-only repos, in the hub. */
 	branch?: string;
 }
@@ -508,6 +551,75 @@ export interface ListeningPort {
 	port: number;
 	/** Process name when readable from /proc. */
 	process: string | null;
+}
+
+// ───────────────────────────── Dev servers (browser pane) ─────────────────────────────
+
+/**
+ * A folder's dev command running in a gateway terminal (`termId`, attachable like any terminal).
+ * `GET /api/dev` → `DevServerInfo[]`. `POST /api/dev` body `DevServerStart` → `DevServerInfo`: the server already
+ * running in that folder, else a new one; 422 `no_dev_command` when the folder has none.
+ * `DELETE /api/dev/:id` → 204 once its whole process tree is gone (SIGTERM, SIGKILL after 5 s); the terminal goes too.
+ * `ready` means a process under the terminal listens on `port` (the lowest below 10000 when there are several).
+ * Exited servers stay listed for a minute, then drop out.
+ */
+export interface DevServerInfo {
+	id: string;
+	/** Real path. */
+	cwd: string;
+	command: string;
+	termId: string;
+	port: number | null;
+	state: "starting" | "ready" | "exited";
+	exitCode: number | null;
+	startedAt: number;
+}
+
+export interface DevServerStart {
+	cwd: string;
+}
+
+/** `GET /api/dev/command?cwd=` → the command Start would run in `cwd`, without starting it. */
+export interface DevCommand {
+	/** Real path, as `DevServerInfo.cwd` reports it. */
+	cwd: string;
+	command: string | null;
+	/** Repo whose task worktree holds `cwd` (its settings set the command); null outside tasks. */
+	repo: string | null;
+}
+
+// ───────────────────────────── Sign-in callback ─────────────────────────────
+
+/**
+ * `POST /api/callback` body. CLIs signing in with OAuth (wrangler, codex, vercel…) wait on a loopback port for the
+ * browser's redirect; the browser is on another device, so the gateway delivers that address on the VM instead.
+ * `url` must pass {@link parseLoopbackCallback}. 404 `nothing_listening` when no process of the signed-in user
+ * listens on its port, 502 when the request fails.
+ */
+export interface CallbackRequest {
+	url: string;
+}
+
+/** `POST /api/callback` → what the waiting program answered: its HTTP status and a short plain-text excerpt. */
+export interface CallbackResult {
+	status: number;
+	message: string;
+}
+
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** A sign-in callback address: `http:` on localhost, 127.0.0.1 or [::1] with an explicit port, no credentials. */
+export function parseLoopbackCallback(text: string): { url: URL; port: number } | null {
+	let url: URL;
+	try {
+		url = new URL(text.trim());
+	} catch {
+		return null;
+	}
+	if (url.protocol !== "http:" || !LOOPBACK_HOSTNAMES.has(url.hostname) || url.username || url.password) return null;
+	// `URL` drops a port equal to the scheme default, so `:80` reads as no port; nothing unprivileged listens there.
+	if (!url.port) return null;
+	return { url, port: Number(url.port) };
 }
 
 // ───────────────────────────── Push notifications ─────────────────────────────

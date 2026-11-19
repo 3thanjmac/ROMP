@@ -2,6 +2,7 @@ import type { Server } from "bun";
 import { apiError, badRequest, forbidden } from "./http.ts";
 import { stripSessionCookies } from "./sessions.ts";
 import { errorMessage, withTimeout } from "./util.ts";
+import type { TcpSocket } from "./procnet.ts";
 import type { Socket, WsData } from "./ws.ts";
 
 export interface ProxyTarget {
@@ -13,6 +14,23 @@ export interface ProxyTarget {
 }
 
 export type ProxyRoute = { target: ProxyTarget } | { redirect: string } | null;
+
+export type LoopbackHost = "127.0.0.1" | "[::1]";
+
+/**
+ * The loopback address to dial for `port`. Dev servers bound to `localhost` listen on `::1` only
+ * where the resolver returns IPv6 first (Vite on Debian), so 127.0.0.1 would be refused. An IPv4 or
+ * wildcard listener answers on 127.0.0.1; nothing listening also yields 127.0.0.1 so the error names it.
+ */
+export function loopbackHost(port: number, listeners: readonly TcpSocket[]): LoopbackHost {
+	let v6Loopback = false;
+	for (const socket of listeners) {
+		if (socket.localPort !== port || socket.scope === "other") continue;
+		if (socket.family === 4 || socket.scope === "any") return "127.0.0.1";
+		v6Loopback = true;
+	}
+	return v6Loopback ? "[::1]" : "127.0.0.1";
+}
 
 /**
  * Maps `/proxy/:port/*` (prefix stripped) and `/absproxy/:port/*` (path kept, for apps built with a
@@ -63,7 +81,7 @@ const HOP_BY_HOP = [
 ];
 const IDENTITY_HEADERS = ["tailscale-user-login", "tailscale-user-name", "tailscale-user-profile-pic"];
 
-function upstreamHeaders(req: Request, target: ProxyTarget, publicUrl: URL): Headers {
+function upstreamHeaders(req: Request, target: ProxyTarget, host: LoopbackHost, publicUrl: URL): Headers {
 	const headers = new Headers(req.headers);
 	for (const name of [...HOP_BY_HOP, ...IDENTITY_HEADERS]) headers.delete(name);
 	for (const name of [...headers.keys()]) if (name.startsWith("sec-websocket-")) headers.delete(name);
@@ -74,8 +92,8 @@ function upstreamHeaders(req: Request, target: ProxyTarget, publicUrl: URL): Hea
 		if (kept === null) headers.delete("cookie");
 		else headers.set("cookie", kept);
 	}
-	// Dev servers commonly refuse unknown Host values (Vite's allowedHosts), so present the loopback name.
-	headers.set("host", `127.0.0.1:${target.port}`);
+	// Dev servers commonly refuse unknown Host values (Vite's allowedHosts), so present the loopback address.
+	headers.set("host", `${host}:${target.port}`);
 	headers.set("x-forwarded-host", publicUrl.host);
 	headers.set("x-forwarded-proto", publicUrl.protocol.replace(":", ""));
 	if (target.prefix.startsWith("/proxy/")) headers.set("x-forwarded-prefix", target.prefix);
@@ -86,12 +104,54 @@ export function checkPort(target: ProxyTarget, ownPort: number): void {
 	if (target.port === ownPort) throw forbidden("Refusing to proxy the gateway to itself");
 }
 
-export async function proxyHttp(req: Request, url: URL, target: ProxyTarget): Promise<Response> {
+/** Remembers the last `/proxy/<port>/` page loaded, for WebSockets that carry no Referer (Vite's HMR socket). */
+export const PROXY_PORT_COOKIE = "romp-proxy-port";
+
+function validPort(text: string | undefined): number | null {
+	if (text === undefined || !/^[1-9]\d{0,4}$/.test(text)) return null;
+	const port = Number(text);
+	return port <= 65535 ? port : null;
+}
+
+/**
+ * Dev servers write root-absolute URLs (`/@vite/client`, `/node_modules/…`, `href="/blog/"`) that escape the
+ * `/proxy/<port>/` prefix. Such a request is attributed to the port of the same-origin page that made it,
+ * named by its Referer, so the caller can redirect it back under the prefix.
+ */
+export function refererProxyPort(req: Request): number | null {
+	const referer = req.headers.get("referer");
+	if (referer === null) return null;
+	let ref: URL;
+	try {
+		ref = new URL(referer);
+	} catch {
+		return null;
+	}
+	if (ref.host !== req.headers.get("host")?.toLowerCase()) return null;
+	return validPort(/^\/proxy\/([^/]+)\//.exec(ref.pathname)?.[1]);
+}
+
+export function cookieProxyPort(req: Request): number | null {
+	const cookie = req.headers.get("cookie");
+	if (cookie === null) return null;
+	for (const part of cookie.split(";")) {
+		const [name, value] = part.trim().split("=", 2);
+		if (name === PROXY_PORT_COOKIE) return validPort(value);
+	}
+	return null;
+}
+
+/** `/proxy/<port>` target for a root-absolute path attributed to `port`. */
+export function prefixedTarget(port: number, url: URL): ProxyTarget {
+	return { port, prefix: `/proxy/${port}`, upstreamPath: `${url.pathname}${url.search}` };
+}
+
+export async function proxyHttp(req: Request, url: URL, target: ProxyTarget, host: LoopbackHost): Promise<Response> {
 	let upstream: Response;
 	try {
-		upstream = await fetch(`http://127.0.0.1:${target.port}${target.upstreamPath}`, {
+		upstream = await fetch(`http://${host}:${target.port}${target.upstreamPath}`, {
 			method: req.method,
-			headers: upstreamHeaders(req, target, url),
+			headers: upstreamHeaders(req, target, host, url),
 			body: req.method === "GET" || req.method === "HEAD" ? undefined : req.body,
 			redirect: "manual",
 			decompress: false,
@@ -104,6 +164,10 @@ export async function proxyHttp(req: Request, url: URL, target: ProxyTarget): Pr
 	for (const name of HOP_BY_HOP) headers.delete(name);
 	const location = headers.get("location");
 	if (location) headers.set("location", rewriteLocation(location, target));
+	const dest = req.headers.get("sec-fetch-dest");
+	if (target.prefix.startsWith("/proxy/") && (dest === "iframe" || dest === "document")) {
+		headers.append("set-cookie", `${PROXY_PORT_COOKIE}=${target.port}; Path=/; Secure; HttpOnly; SameSite=Strict`);
+	}
 	return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers });
 }
 
@@ -124,15 +188,16 @@ export async function proxyWebSocket(
 	req: Request,
 	url: URL,
 	target: ProxyTarget,
+	host: LoopbackHost,
 	server: Server<WsData>,
 ): Promise<Response | undefined> {
 	const protocols = (req.headers.get("sec-websocket-protocol") ?? "")
 		.split(",")
 		.map((p) => p.trim())
 		.filter(Boolean);
-	const upstream = new WebSocket(`ws://127.0.0.1:${target.port}${target.upstreamPath}`, {
+	const upstream = new WebSocket(`ws://${host}:${target.port}${target.upstreamPath}`, {
 		protocols,
-		headers: Object.fromEntries(upstreamHeaders(req, target, url)),
+		headers: Object.fromEntries(upstreamHeaders(req, target, host, url)),
 	});
 	upstream.binaryType = "arraybuffer";
 	const data: ProxySocketData = { kind: "proxy", upstream, early: [], client: null, upstreamClosed: null };

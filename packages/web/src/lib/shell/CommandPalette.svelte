@@ -7,7 +7,16 @@
 	import Icon from "../ui/Icon.svelte";
 	import { toast } from "../ui/toast.svelte";
 	import { fuzzyFilter } from "./fuzzy";
-	import { LAUNCH_ITEMS, attach, launch, launchCwd, openAgent, type RunningSession, runningSessions } from "./launcherItems";
+	import {
+		LAUNCH_ITEMS,
+		attach,
+		finishSignIn,
+		launch,
+		launchCwd,
+		openAgent,
+		type RunningSession,
+		runningSessions,
+	} from "./launcherItems";
 	import { WIDTH_LABELS, WIDTH_PRESETS } from "./layout";
 	import { session } from "./session.svelte";
 	import { displayTitle, shell } from "./shell.svelte";
@@ -127,6 +136,7 @@
 		if (shell.focusedWindow && shell.active.mode === "scroll") {
 			WIDTH_PRESETS.forEach((w, i) => cmd(`width:${i}`, `Width: ${WIDTH_LABELS[i]}`, Icons.ModeScroll, () => shell.setWidth(shell.active.focusedId!, w)));
 		}
+		cmd("sign-in", "Finish sign-in…", Icons.Terminal, finishSignIn);
 		cmd("shortcuts", "Keyboard shortcuts", Icons.Shortcuts, () => (frameUi.shortcuts = true));
 		cmd("settings", "Settings", Icons.Settings, () => frameUi.openSettings());
 		return out;

@@ -7,6 +7,7 @@
 		tone?: "info" | "warning" | "danger" | "neutral";
 		icon?: IconComponent;
 		text?: string;
+		/** Content under the text and actions, full width (a form, say). */
 		children?: Snippet;
 		actions?: Snippet;
 	}
@@ -17,9 +18,10 @@
 <div class="banner" data-tone={tone} role={tone === "danger" ? "alert" : "status"}>
 	<div class="text">
 		{#if icon}<Icon {icon} size="sm" />{/if}
-		<span>{text}{@render children?.()}</span>
+		<span>{text}</span>
 	</div>
 	{#if actions}<div class="actions">{@render actions()}</div>{/if}
+	{#if children}<div class="body">{@render children()}</div>{/if}
 </div>
 
 <style>
@@ -60,5 +62,12 @@
 		display: flex;
 		gap: var(--sp-2);
 		margin-inline-start: auto;
+	}
+	.body {
+		flex-basis: 100%;
+		min-width: 0;
+		&:empty {
+			display: none;
+		}
 	}
 </style>

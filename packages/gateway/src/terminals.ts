@@ -32,6 +32,8 @@ export class TerminalSession {
 	private readonly terminal: Bun.Terminal;
 	private exitCode: number | null = null;
 	private exited = false;
+	/** Resolves with the exit code once the process has exited and its last output has been flushed. */
+	readonly done: Promise<number | null>;
 
 	constructor(spawn: TerminalSpawn) {
 		this.title = spawn.title;
@@ -51,6 +53,8 @@ export class TerminalSession {
 		const terminal = this.proc.terminal;
 		if (!terminal) throw new Error("PTY was not created");
 		this.terminal = terminal;
+		const done = Promise.withResolvers<number | null>();
+		this.done = done.promise;
 		void this.proc.exited.then((code) => {
 			// Let the PTY drain whatever the process wrote last before reporting the exit.
 			setTimeout(() => {
@@ -59,8 +63,14 @@ export class TerminalSession {
 				this.exitCode = code;
 				this.terminal.close();
 				for (const ws of this.clients) sendJson(ws, { t: "exit", code } satisfies TermServerMsg);
+				done.resolve(code);
 			}, 50);
 		});
+	}
+
+	/** The PTY's process: a session leader, so its pid is also its process group id. */
+	get pid(): number {
+		return this.proc.pid;
 	}
 
 	info(): TermInfo {

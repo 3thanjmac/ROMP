@@ -9,7 +9,7 @@ import { killLiveGroups } from "./proc.ts";
 import { type OmpDefaultsResult, ompDefaultsPaths, setOmpDefaultsOptOut, syncOmpDefaults } from "./ompdefaults.ts";
 import { postReceive, preReceive, runOnce, serve } from "./queue.ts";
 import { addRepo, initRoot, listRepos, updateRepoSettings } from "./repos.ts";
-import { createTask, listTasks, removeTask, taskForPath } from "./tasks.ts";
+import { createTask, listTasks, readTaskSetup, removeTask, taskForPath, taskSetupCommand, writeTaskSetup } from "./tasks.ts";
 
 const USAGE = `usage: romp <command>
 
@@ -17,8 +17,9 @@ const USAGE = `usage: romp <command>
   repo add <url> [--name n] [--branch b]       add a repo from an upstream URL
   repo add --name n [--branch b]               add a hub-only repo (no upstream)
   repo list [--json]
-  repo set <name> land=push|pr test=<cmd> setup=<cmd>   (empty value: none; "-": use .romp.toml)
-  task new <repo> <title...> [--slug s] [--json]
+  repo set <name> land=push|pr setup=<cmd> test=<cmd> dev=<cmd>
+                                               (empty value: none; "-": use .romp.toml or detection)
+  task new <repo> <title...> [--slug s] [--json]   runs the repo's setup command in the new worktree
   task list [--json]
   task rm <repo> <slug>
   checkpoint [path] [--json]                   commit, back up and sync the task (exit 3 on conflict)
@@ -87,8 +88,26 @@ function parseSetting(update: RepoSettingsUpdate, pair: string): void {
 	if (key === "land") {
 		if (value !== "push" && value !== "pr") throw new UsageError("land must be push or pr");
 		update.land = value as LandMode;
-	} else if (key === "test" || key === "setup") update[key] = value === "-" ? null : value;
-	else throw new UsageError(`unknown setting ${key} (land, test, setup)`);
+	} else if (key === "test" || key === "setup" || key === "dev") update[key] = value === "-" ? null : value;
+	else throw new UsageError(`unknown setting ${key} (land, setup, test, dev)`);
+}
+
+/** Run the task's setup command in its worktree, output on stderr so stdout stays the path / JSON. */
+async function runTaskSetup(env: RompEnv, repo: string, slug: string, worktree: string): Promise<boolean> {
+	const command = taskSetupCommand(env, repo, slug);
+	if (!command) return true;
+	writeTaskSetup(env, repo, slug, { state: "running", termId: null, exitCode: null });
+	console.error(`$ ${command}`);
+	const proc = Bun.spawn([process.env.SHELL || "/bin/sh", "-lc", command], {
+		cwd: worktree,
+		stdin: "inherit",
+		stdout: 2,
+		stderr: "inherit",
+	});
+	const code = await proc.exited;
+	writeTaskSetup(env, repo, slug, { state: code === 0 ? "done" : "failed", termId: null, exitCode: code });
+	if (code !== 0) console.error(`romp: setup exited with ${code}; the task is ready, retry setup from the Tasks window`);
+	return code === 0;
 }
 
 function queueDepth(env: RompEnv): Record<string, number> {
@@ -145,7 +164,11 @@ async function main(argv: string[]): Promise<number> {
 				if (json) print(repos);
 				else
 					for (const r of repos)
-						console.log(`${r.name}\t${r.branch}\t${r.land}\t${r.remote ?? "(hub-only)"}${r.test ? `\ttest: ${r.test}` : ""}`);
+						console.log(
+							`${r.name}\t${r.branch}\t${r.land}\t${r.remote ?? "(hub-only)"}${(["setup", "test", "dev"] as const)
+								.map((k) => (r[k] ? `\t${k}: ${r[k]}` : ""))
+								.join("")}`,
+						);
 				return 0;
 			}
 			if (sub === "set") {
@@ -155,7 +178,7 @@ async function main(argv: string[]): Promise<number> {
 				for (const pair of pairs) parseSetting(update, pair);
 				const repo = await updateRepoSettings(env, name, update);
 				if (json) print(repo);
-				else console.log(`${repo.name}: land=${repo.land} setup=${repo.setup ?? "-"} test=${repo.test ?? "-"}`);
+				else console.log(`${repo.name}: land=${repo.land} setup=${repo.setup ?? "-"} test=${repo.test ?? "-"} dev=${repo.dev ?? "-"}`);
 				return 0;
 			}
 			break;
@@ -165,9 +188,10 @@ async function main(argv: string[]): Promise<number> {
 				const [repo, ...words] = rest;
 				if (!repo || words.length === 0) throw new UsageError("task new <repo> <title...>");
 				const task = await createTask(env, { repo, title: words.join(" "), slug: flag(args, "slug") });
-				if (json) print(task);
+				const ok = await runTaskSetup(env, task.repo, task.slug, task.path);
+				if (json) print({ ...task, setup: readTaskSetup(env, task.repo, task.slug) });
 				else console.log(task.path);
-				return 0;
+				return ok ? 0 : 1;
 			}
 			if (sub === "list") {
 				const tasks = await listTasks(env);

@@ -4,6 +4,7 @@ import { api } from "../api";
 import { Icons, type IconComponent } from "../icons";
 import { session } from "./session.svelte";
 import { sessionKey, sessionOf, shell, windowCwd } from "./shell.svelte";
+import { frameUi } from "./ui.svelte";
 
 export type LaunchKind = Exclude<WindowKind, "editor"> | "open-file";
 
@@ -22,9 +23,16 @@ export const LAUNCH_ITEMS: readonly LaunchItem[] = [
 	{ kind: "open-file", label: "Open file…", icon: Icons.Editor },
 ];
 
-/** Working directory for new terminals and agents: the focused window's directory, else home. */
+/** Working directory for new windows: the focused window's directory, else home. */
 export function launchCwd(): string {
 	return windowCwd(shell.focusedWindow) ?? session.me?.home ?? "/";
+}
+
+/** "Finish sign-in…": the focused terminal shows its sign-in banner; with no terminal focused, the dialog opens. */
+export function finishSignIn(): void {
+	const focused = shell.focusedWindow;
+	if (focused?.kind === "terminal") frameUi.signInWindow = focused.id;
+	else frameUi.signInDialog = true;
 }
 
 /**
@@ -43,7 +51,7 @@ export function launch(kind: LaunchKind, cwd: string, keyboard = false): void {
 			shell.open({ kind: "files", props: { path: cwd } }, { keyboard });
 			return;
 		case "browser":
-			shell.open({ kind: "browser", props: { url: "" } }, { keyboard });
+			shell.open({ kind: "browser", props: { url: "", cwd } }, { keyboard });
 			return;
 		case "tasks":
 			if (!shell.focusWhere((w) => w.kind === "tasks", { keyboard })) {

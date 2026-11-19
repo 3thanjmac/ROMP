@@ -129,6 +129,8 @@ export function windowCwd(win: WindowState | null): string | null {
 			const i = win.props.path.lastIndexOf("/");
 			return i > 0 ? win.props.path.slice(0, i) : "/";
 		}
+		case "browser":
+			return win.props.cwd ?? null;
 		default:
 			return null;
 	}

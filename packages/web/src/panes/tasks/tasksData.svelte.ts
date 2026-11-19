@@ -69,12 +69,14 @@ export class TasksData {
 		}
 	}
 
-	/** Polls every 3s while the queue is busy and the tab is visible, else every 15s. */
+	/** Polls every 3s while the queue or a task's setup is busy and the tab is visible, else every 15s. */
 	start(): () => void {
+		const delay = () =>
+			anyShipping(this.tasks) || this.tasks.some((t) => t.setup?.state === "running") ? FAST_POLL_MS : SLOW_POLL_MS;
 		const tick = async () => {
 			if (document.visibilityState === "visible" && this.#pane.visible) await this.load();
 			if (this.#disposed) return;
-			this.#timer = window.setTimeout(tick, anyShipping(this.tasks) ? FAST_POLL_MS : SLOW_POLL_MS);
+			this.#timer = window.setTimeout(tick, delay());
 		};
 		const onVisible = () => {
 			if (document.visibilityState !== "visible") return;
@@ -82,7 +84,7 @@ export class TasksData {
 			void tick();
 		};
 		void this.load().then(() => {
-			if (!this.#disposed) this.#timer = window.setTimeout(tick, anyShipping(this.tasks) ? FAST_POLL_MS : SLOW_POLL_MS);
+			if (!this.#disposed) this.#timer = window.setTimeout(tick, delay());
 		});
 		document.addEventListener("visibilitychange", onVisible);
 		return () => {
@@ -125,6 +127,34 @@ export class TasksData {
 
 	openFiles(task: TaskInfo): void {
 		this.#pane.open({ kind: "files", props: { path: task.path } });
+	}
+
+	/**
+	 * Starts the task's dev server in a Browser window for its worktree (an open one is reused), which shows it
+	 * starting and loads it once ready, or offers Set dev command when the task has none.
+	 */
+	preview(task: TaskInfo): void {
+		const open = shell.find((w) => w.kind === "browser" && w.props.cwd === task.path);
+		if (open) {
+			shell.setProps(open.id, { start: true });
+			shell.focus(open.id);
+		} else {
+			this.#pane.open({ kind: "browser", props: { url: "", cwd: task.path, start: true } });
+		}
+	}
+
+	/** Focuses the window attached to the task's setup terminal, or opens one. */
+	openSetupLog(task: TaskInfo): void {
+		const termId = task.setup?.termId;
+		if (!termId) return;
+		if (shell.focusWhere((w) => w.kind === "terminal" && w.props.termId === termId)) return;
+		this.#pane.open({ kind: "terminal", title: `setup · ${task.slug}`, props: { termId, cwd: task.path } });
+	}
+
+	/** Runs the task's setup command again; throws so the row can show why it couldn't. */
+	async retrySetup(task: TaskInfo): Promise<void> {
+		const updated = await api.tasks.retrySetup(task.repo, task.slug);
+		this.tasks = this.tasks.map((t) => (taskKey(t) === taskKey(task) ? updated : t));
 	}
 
 	/**

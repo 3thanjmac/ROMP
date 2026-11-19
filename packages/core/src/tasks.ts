@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { TaskInfo, TaskStatus } from "@romp/protocol";
+import type { RepoCommandName, TaskInfo, TaskSetup, TaskStatus } from "@romp/protocol";
 import {
 	cloneDir,
 	hubDir,
@@ -25,8 +25,12 @@ import { git, gitOut, revParse } from "./proc.ts";
 import {
 	cloneRefspecs,
 	copyRepoEnv,
+	detectCommandsIn,
+	effectiveCommands,
 	ensureClone,
 	hubGit,
+	parseRompToml,
+	type RepoCommands,
 	type RepoSettings,
 	readSettings,
 	requireHubWritable,
@@ -62,6 +66,37 @@ export function requireMeta(env: RompEnv, repo: string, slug: string): TaskMeta 
 	return meta;
 }
 
+/** Setup run of a task's worktree, next to its metadata. `pid` owns a `running` run; when it is gone the run failed. */
+interface SetupRecord extends TaskSetup {
+	pid: number;
+}
+
+const setupFile = (env: RompEnv, repo: string, slug: string) => path.join(taskMetaDir(env, repo), `${slug}.setup.json`);
+
+function pidAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (err) {
+		return (err as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
+/** The task's last setup run. A `running` run whose process is gone (gateway restart, killed CLI) reads as failed. */
+export function readTaskSetup(env: RompEnv, repo: string, slug: string): TaskSetup | null {
+	const record = readJsonFile<SetupRecord>(setupFile(env, repo, slug));
+	if (!record) return null;
+	if (record.state === "running" && !pidAlive(record.pid)) return { state: "failed", termId: null, exitCode: null };
+	return { state: record.state, termId: record.termId, exitCode: record.exitCode };
+}
+
+/** Record a setup run owned by this process. Ignored once the task is gone. */
+export function writeTaskSetup(env: RompEnv, repo: string, slug: string, setup: TaskSetup): void {
+	if (readMeta(env, repo, slug) === null) return;
+	const record: SetupRecord = { ...setup, pid: process.pid };
+	writeFileAtomic(setupFile(env, repo, slug), `${JSON.stringify(record, null, "\t")}\n`, 0o644);
+}
+
 function realpathOr(p: string): string {
 	try {
 		return fs.realpathSync(p);
@@ -94,6 +129,36 @@ export function slugify(title: string): string {
 		.replace(/^-+|-+$/g, "")
 		.slice(0, 40)
 		.replace(/-+$/, "");
+}
+
+/**
+ * Commands for a working directory: the hub settings of the repo whose task worktree contains `dir`, then
+ * `.romp.toml` in `dir`, then detection from `dir`'s lockfile and package.json.
+ */
+export function resolveCommands(env: RompEnv, dir: string): RepoCommands {
+	const task = taskForPath(env, dir);
+	let settings: Pick<RepoSettings, RepoCommandName> = { setup: null, test: null, dev: null };
+	if (task) {
+		try {
+			settings = readSettings(env, task.repo);
+		} catch {}
+	}
+	let toml: string | null = null;
+	try {
+		toml = fs.readFileSync(path.join(dir, ".romp.toml"), "utf8");
+	} catch {}
+	return effectiveCommands(settings, parseRompToml(toml), detectCommandsIn(dir));
+}
+
+/** The dev server command for `dir` (see `resolveCommands`); null when nothing is configured or detected. */
+export async function resolveDevCommand(env: RompEnv, dir: string): Promise<string | null> {
+	return resolveCommands(env, dir).dev;
+}
+
+/** The setup command for a task's worktree, or null when it has none. */
+export function taskSetupCommand(env: RompEnv, repo: string, slug: string): string | null {
+	requireMeta(env, repo, slug);
+	return resolveCommands(env, worktreeDir(env, repo, slug)).setup;
 }
 
 export async function createTask(
@@ -156,6 +221,7 @@ export async function taskInfo(env: RompEnv, repo: string, slug: string, setting
 		behind: 0,
 		conflictFiles: [],
 		landing,
+		setup: readTaskSetup(env, repo, slug),
 	};
 	if (!fs.existsSync(wt)) return base;
 	const hubRef = `refs/remotes/hub/${settings.branch}`;
@@ -258,6 +324,7 @@ export async function removeTask(env: RompEnv, repo: string, slug: string): Prom
 		await git(env, clone, ["update-ref", "-d", `refs/remotes/hub/${branch}`], { allowFail: true });
 		fs.rmSync(statusFile(env, repo, env.user, slug), { force: true });
 		fs.rmSync(metaFile(env, repo, slug), { force: true });
+		fs.rmSync(setupFile(env, repo, slug), { force: true });
 	});
 }
 

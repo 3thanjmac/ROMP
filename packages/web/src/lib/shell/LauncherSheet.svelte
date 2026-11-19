@@ -4,7 +4,7 @@
 	import Button from "../ui/Button.svelte";
 	import Icon from "../ui/Icon.svelte";
 	import Sheet from "../ui/Sheet.svelte";
-	import { LAUNCH_ITEMS, launch, launchCwd, type LaunchKind } from "./launcherItems";
+	import { LAUNCH_ITEMS, finishSignIn, launch, launchCwd, type LaunchKind } from "./launcherItems";
 	import { session } from "./session.svelte";
 	import { frameUi } from "./ui.svelte";
 
@@ -75,6 +75,16 @@
 					<span>{item.label}</span>
 				</button>
 			{/each}
+			<button
+				class="tile"
+				onclick={() => {
+					frameUi.launcher = false;
+					finishSignIn();
+				}}
+			>
+				<Icon icon={Icons.Terminal} size="lg" />
+				<span>Finish sign-in…</span>
+			</button>
 		</div>
 	</div>
 </Sheet>
