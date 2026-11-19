@@ -355,12 +355,12 @@ export type AgentClientMsg =
  */
 export type AgentServerMsg =
 	| {
-			t: "snapshot";
-			info: AgentInfo;
-			messages: unknown[];
-			state: unknown;
-			pendingUi: unknown[];
-	  }
+		t: "snapshot";
+		info: AgentInfo;
+		messages: unknown[];
+		state: unknown;
+		pendingUi: unknown[];
+	}
 	| { t: "frame"; frame: Record<string, unknown> & { type: string } }
 	| { t: "response"; reqId: string; success: boolean; data?: unknown; error?: string }
 	| { t: "info"; info: AgentInfo }
@@ -608,11 +608,15 @@ export interface CallbackResult {
 
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-/** A sign-in callback address: `http:` on localhost, 127.0.0.1 or [::1] with an explicit port, no credentials. */
+/**
+ * A sign-in callback address: `http:` on localhost, 127.0.0.1 or [::1] with an explicit port, no credentials.
+ * Browsers hide `http://` in the address bar and often copy without it, so a bare `localhost:8976/…` counts.
+ */
 export function parseLoopbackCallback(text: string): { url: URL; port: number } | null {
+	const trimmed = text.trim();
 	let url: URL;
 	try {
-		url = new URL(text.trim());
+		url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`);
 	} catch {
 		return null;
 	}

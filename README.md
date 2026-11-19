@@ -139,7 +139,7 @@ The gateway trusts the Tailscale identity headers only on connections from socke
 - In **Tasks**, pick a repo and describe the work. ROMP creates a worktree and branch, starts an agent there, and opens its window. Keep prompting; changes are committed and synced after each agent run.
 - Press **Ship** in Tasks, or type `/ship` in the agent, when the task is done. The task card follows it through queued → landing → landed. If tests fail, the log appears there and the agent is asked to fix it.
 - From a terminal on the VM, `romp task list`, `romp status` and `romp --help` show the same state.
-- A CLI sign-in on the VM (`wrangler login`, `codex login`…) waits on a `localhost` port your phone can't reach. Approve it, copy the address your browser ended on, and tap **Paste from clipboard** in the terminal's sign-in banner (or **Finish sign-in…** in the palette).
+- A CLI sign-in on the VM (`wrangler login`, `codex login`…) waits on a `localhost` port your phone can't reach. Approve it, copy the address your browser ended on (with or without `http://`), and tap **Paste from clipboard** in the terminal's sign-in banner (or **Finish sign-in…** in the palette). The VM has no browser, so `install.sh` puts `romp-open` in place of `xdg-open`: CLIs that try to open the sign-in page print its link in the terminal instead of quitting.
 
 ## Development
 

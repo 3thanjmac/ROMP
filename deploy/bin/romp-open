@@ -1,0 +1,15 @@
+#!/bin/sh
+# xdg-open for a VM with no browser, installed by install.sh. CLIs that sign in with OAuth (wrangler, gh, vercel...)
+# run xdg-open, and wrangler quits when it is missing. This prints each link in the terminal instead, where ROMP
+# turns it into a sign-in banner, and reports success so the CLI keeps waiting for its callback.
+say() { printf '\r\nOpen in your browser: %s\r\n' "$1"; }
+if [ -t 2 ]; then
+	for url in "$@"; do say "$url" >&2; done
+	exit 0
+fi
+# Started detached with its output discarded (wrangler does this): write to the caller's terminal instead.
+tty=$(readlink "/proc/$PPID/fd/2" 2>/dev/null)
+case "$tty" in
+/dev/pts/*) for url in "$@"; do say "$url" >"$tty"; done ;;
+esac
+exit 0

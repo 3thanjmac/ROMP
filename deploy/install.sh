@@ -85,6 +85,9 @@ install -m 0755 "$ROMP_SRC/deploy/bin/romp" /usr/local/bin/romp
 install -m 0755 "$ROMP_SRC/deploy/bin/romp-gateway" /usr/local/bin/romp-gateway
 install -m 0755 "$ROMP_SRC/deploy/bin/romp-update" /usr/local/sbin/romp-update
 install -m 0755 "$ROMP_SRC/deploy/bin/romp-lan" /usr/local/sbin/romp-lan
+# The VM has no browser. Sign-in CLIs run xdg-open (wrangler quits without one); romp-open prints the link instead.
+install -m 0755 "$ROMP_SRC/deploy/bin/romp-open" /usr/local/bin/romp-open
+[ -e /usr/bin/xdg-open ] || ln -sfn romp-open /usr/local/bin/xdg-open
 install -m 0644 "$ROMP_SRC/deploy/profile.d/romp-setup.sh" /etc/profile.d/romp-setup.sh
 
 step "ROMP root at $ROMP_ROOT"

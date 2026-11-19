@@ -43,6 +43,11 @@ describe("parseLoopbackCallback", () => {
 		expect(target("  http://127.0.0.1:1455/auth/callback?code=1 ").port).toBe(1455);
 		expect(target("http://[::1]:3000/").port).toBe(3000);
 	});
+	test("accepts an address copied without http://", () => {
+		const parsed = target("localhost:8976/oauth/callback?code=abc&state=x");
+		expect(parsed.url.href).toBe("http://localhost:8976/oauth/callback?code=abc&state=x");
+		expect(target(" 127.0.0.1:1455/cb ").port).toBe(1455);
+	});
 	test("refuses other schemes, hosts, credentials and missing ports", () => {
 		for (const text of [
 			"https://localhost:8976/cb",
@@ -53,7 +58,9 @@ describe("parseLoopbackCallback", () => {
 			"http://user:pw@localhost:8976/cb",
 			"http://localhost/cb",
 			"http://localhost:80/cb",
-			"localhost:8976/cb",
+			"localhost/cb",
+			"example.com:8976/cb",
+			"ftp://localhost:8976/cb",
 			"",
 		]) {
 			expect(parseLoopbackCallback(text)).toBeNull();
