@@ -3,6 +3,7 @@
 	import { type BusySend, loadBusySend, loadDraft, saveBusySend, saveDraft } from "../../lib/agent/persist";
 	import type { AgentCommand, SendKind } from "../../lib/agent/types";
 	import { Icons } from "../../lib/icons";
+	import { frameUi } from "../../lib/shell/ui.svelte";
 	import IconButton from "../../lib/ui/IconButton.svelte";
 	import Segmented from "../../lib/ui/Segmented.svelte";
 	import SlashCommandMenu from "./SlashCommandMenu.svelte";
@@ -121,7 +122,8 @@
 	}
 </script>
 
-<div class="composer">
+<!-- The lifted page control would sit on top of the field while scrubbing, so the composer steps aside until release. -->
+<div class="composer" class:scrubbing={frameUi.scrubbing}>
 	{#if busy}
 		<div class="when">
 			<Segmented options={OPTIONS} bind:value={busySend} label="When to deliver" onchange={v => saveBusySend(windowId, v)} />
@@ -178,6 +180,16 @@
 		background: var(--surface-2);
 		border-block-start: var(--border);
 		flex: none;
+		transition: opacity var(--dur) var(--ease);
+		&.scrubbing {
+			opacity: 0;
+			transition: none;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.composer {
+			transition: none;
+		}
 	}
 	.when {
 		display: flex;

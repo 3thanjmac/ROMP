@@ -41,7 +41,8 @@
 	}
 
 	function onpointerdown(e: PointerEvent) {
-		if (drag || !el || !track || !e.isPrimary) return;
+		// No guard on an existing drag: a new primary pointer means the old one is gone, whatever we heard about it.
+		if (!el || !track || !e.isPrimary) return;
 		const [a, b] = track.children;
 		const pitch = a && b ? b.getBoundingClientRect().left - a.getBoundingClientRect().left : 0;
 		drag = { pointer: e.pointerId, x: e.clientX, index: current, step: Math.max(STEP_MIN_PX, pitch) };
@@ -54,11 +55,20 @@
 		if (jump(drag.index + Math.trunc((e.clientX - drag.x) / drag.step)) && "vibrate" in navigator) navigator.vibrate(HAPTIC_MS);
 	}
 
-	function onpointerup(e: PointerEvent) {
-		if (e.pointerId !== drag?.pointer) return;
+	function release() {
 		drag = null;
 		frameUi.scrubbing = false;
 	}
+
+	/** Window-level (capture phase) and on capture loss, so a release can't slip past the control and leave it raised. */
+	function onpointerend(e: PointerEvent) {
+		if (e.pointerId === drag?.pointer) release();
+	}
+
+	// The control can unmount mid-drag (the bar hides for the keyboard, the window count drops, tile mode).
+	$effect(() => {
+		if (el) return () => drag && release();
+	});
 
 	function onkeydown(e: KeyboardEvent) {
 		const target =
@@ -92,8 +102,8 @@
 		aria-valuetext={currentWin ? `${displayTitle(currentWin)}, ${current + 1} of ${count}` : undefined}
 		{onpointerdown}
 		{onpointermove}
-		{onpointerup}
-		onpointercancel={onpointerup}
+		onlostpointercapture={onpointerend}
+		oncontextmenu={e => e.preventDefault()}
 		{onkeydown}
 	>
 		<!-- Clipped dots fade out at whichever edge still has more of them beyond it. -->
@@ -113,6 +123,8 @@
 	</div>
 {/if}
 
+<svelte:window onpointerupcapture={onpointerend} onpointercancelcapture={onpointerend} onblur={() => drag && release()} />
+
 <style>
 	.page-control {
 		position: relative;
@@ -124,6 +136,7 @@
 		background: var(--page-capsule);
 		border: var(--border);
 		touch-action: none;
+		-webkit-touch-callout: none;
 		user-select: none;
 		-webkit-user-select: none;
 		cursor: grab;
