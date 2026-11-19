@@ -181,4 +181,8 @@
 			}
 		}
 	}
+	/* The phone page control reads the visible carousel's scroll position from this timeline (scoped in AppFrame). */
+	.desk:not([hidden]) > .track.carousel {
+		scroll-timeline: --carousel x;
+	}
 </style>

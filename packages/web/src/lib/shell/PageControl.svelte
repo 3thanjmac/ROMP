@@ -1,9 +1,11 @@
 <script lang="ts">
 	/**
 	 * Phone carousel position: one dot per window, the visible one highlighted. It follows the strip while a swipe
-	 * is in flight (frameUi.stripView), not only the settled focus. Pressing it never changes the page: press and
-	 * drag steps one window per dot pitch of travel, once the press has been held briefly. While held it rises above
-	 * the finger so the dots stay visible.
+	 * is in flight (frameUi.stripView), not only the settled focus. When the dots overflow, the track slides with the
+	 * strip's continuous scroll progress rather than in whole-dot steps; where scroll-driven animations exist, CSS
+	 * reads that progress straight from the strip's scroll timeline (Desk.svelte), frame-locked to the swipe.
+	 * Pressing it never changes the page: press and drag steps one window per dot pitch of travel, once the press
+	 * has been held briefly. While held it rises above the finger so the dots stay visible.
 	 */
 	import { displayTitle, layoutMode, shell } from "./shell.svelte";
 	import { frameUi } from "./ui.svelte";
@@ -29,12 +31,11 @@
 	let drag: { pointer: number; x: number; index: number; step: number; active: boolean } | null = null;
 	let holdTimer: number | undefined;
 
-	/** When there are more dots than fit, the track slides to keep the current one in view. */
-	const offset = $derived.by(() => {
-		const dot = track?.children[current] as HTMLElement | undefined;
-		if (!dot || trackWidth <= viewWidth) return 0;
-		return Math.max(0, Math.min(trackWidth - viewWidth, dot.offsetLeft + dot.offsetWidth / 2 - viewWidth / 2));
-	});
+	/**
+	 * Scroll progress through the strip: 0 on the first window, 1 on the last, fractional mid-swipe. CSS positions
+	 * the track from it; the strip's scroll timeline overrides it where supported, except while scrubbing.
+	 */
+	const progress = $derived(count > 1 ? Math.max(0, Math.min(1, (frameUi.stripView.start * count) / (count - 1))) : 0);
 	const clipped = $derived(trackWidth > viewWidth);
 
 	/** Focuses the window at `index` (clamped); true when that changed the focus. */
@@ -125,10 +126,11 @@
 			class="view"
 			class:clipped
 			bind:clientWidth={viewWidth}
-			style:--fade-start={offset > 0 ? "var(--page-fade)" : "0px"}
-			style:--fade-end={offset < trackWidth - viewWidth - 1 ? "var(--page-fade)" : "0px"}
+			style:--view="{viewWidth}px"
+			style:--track="{trackWidth}px"
+			style:--carousel-progress={progress}
 		>
-			<div class="track" bind:this={track} bind:clientWidth={trackWidth} style:translate="{-offset}px 0">
+			<div class="track" bind:this={track} bind:clientWidth={trackWidth}>
 				{#each ws.windows as win, i (win.id)}
 					<span class="dot" class:on={i === current}></span>
 				{/each}
@@ -140,7 +142,22 @@
 <svelte:window onpointerupcapture={onpointerend} onpointercancelcapture={onpointerend} onblur={() => drag && release()} />
 
 <style>
+	/* Registered so the scroll timeline can animate it and the track inherits it as a number. */
+	@property --carousel-progress {
+		syntax: "<number>";
+		inherits: true;
+		initial-value: 0;
+	}
+	@keyframes carousel-progress {
+		from {
+			--carousel-progress: 0;
+		}
+		to {
+			--carousel-progress: 1;
+		}
+	}
 	.page-control {
+		--dot: var(--dot-sm);
 		position: relative;
 		display: flex;
 		min-width: 0;
@@ -173,13 +190,42 @@
 		min-width: 0;
 		overflow: hidden;
 		&.clipped {
+			/* How far the track slides to centre the current dot, clamped so neither end shows empty space. */
+			--offset: clamp(
+				0px,
+				var(--dot) / 2 + var(--carousel-progress) * (var(--track) - var(--dot)) - var(--view) / 2,
+				var(--track) - var(--view)
+			);
+			/* Each fade grows with the dots hidden past its edge, so it never pops in. */
 			mask-image: linear-gradient(
 				to right,
 				transparent,
-				black var(--fade-start),
-				black calc(100% - var(--fade-end)),
+				black min(var(--offset), var(--page-fade)),
+				black calc(100% - min(var(--track) - var(--view) - var(--offset), var(--page-fade))),
 				transparent
 			);
+			.track {
+				translate: calc(-1 * var(--offset)) 0;
+			}
+		}
+	}
+	/* The strip's scroll position drives the progress directly; JS sets the same value inline as the fallback. */
+	@supports (animation-timeline: scroll()) {
+		.view {
+			animation: carousel-progress linear both;
+			animation-timeline: --carousel;
+		}
+	}
+	/* Scrubbing jumps the strip one window at a time without animation: ease the track between those steps
+	   instead. A fast-start curve keeps its speed when the next step retargets it mid-flight. */
+	.held {
+		.view {
+			animation: none;
+		}
+		@media (prefers-reduced-motion: no-preference) {
+			.track {
+				transition: translate var(--dur) var(--ease-out-quint);
+			}
 		}
 	}
 	.track {
@@ -187,12 +233,11 @@
 		align-items: center;
 		gap: var(--sp-1);
 		width: max-content;
-		transition: translate var(--dur) var(--ease);
 	}
 	.dot {
 		flex: none;
-		width: var(--dot-sm);
-		height: var(--dot-sm);
+		width: var(--dot);
+		height: var(--dot);
 		border-radius: var(--radius-full);
 		background: var(--fg-subtle);
 		opacity: 0.5;
@@ -206,6 +251,7 @@
 	}
 	/* UIPageControl: 8px white dots, the inactive ones translucent, on a blurred dark capsule. */
 	.ios {
+		--dot: var(--dot-md);
 		border: none;
 		background: var(--page-capsule-ios);
 		backdrop-filter: blur(var(--page-blur));
@@ -214,8 +260,6 @@
 			gap: var(--sp-2);
 		}
 		.dot {
-			width: var(--dot-md);
-			height: var(--dot-md);
 			background: var(--page-dot-ios-dim);
 			opacity: 1;
 			&.on {
@@ -225,7 +269,6 @@
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.page-control,
-		.track,
 		.dot {
 			transition: none;
 		}

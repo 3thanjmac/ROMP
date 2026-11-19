@@ -47,6 +47,8 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+		/* Lets the bottom bar's page control follow the carousel's scroll timeline (Desk.svelte). */
+		timeline-scope: --carousel;
 	}
 	.content {
 		flex: 1;
