@@ -2,8 +2,8 @@
 	/**
 	 * Phone carousel position: one dot per window, the visible one highlighted. It follows the strip while a swipe
 	 * is in flight (frameUi.stripView), not only the settled focus. When the dots overflow, the track slides with the
-	 * strip's continuous scroll progress rather than in whole-dot steps; where scroll-driven animations exist, CSS
-	 * reads that progress straight from the strip's scroll timeline (Desk.svelte), frame-locked to the swipe.
+	 * strip's continuous scroll progress rather than in whole-dot steps; where ScrollTimeline exists, the browser
+	 * moves it straight from the strip's scroll position, in step with the swipe.
 	 * Pressing it never changes the page: press and drag steps one window per dot pitch of travel, once the press
 	 * has been held briefly. While held it rises above the finger so the dots stay visible.
 	 */
@@ -33,10 +33,36 @@
 
 	/**
 	 * Scroll progress through the strip: 0 on the first window, 1 on the last, fractional mid-swipe. CSS positions
-	 * the track from it; the strip's scroll timeline overrides it where supported, except while scrubbing.
+	 * the track and sizes the edge fades from it.
 	 */
 	const progress = $derived(count > 1 ? Math.max(0, Math.min(1, (frameUi.stripView.start * count) / (count - 1))) : 0);
 	const clipped = $derived(trackWidth > viewWidth);
+
+	/**
+	 * Where ScrollTimeline exists, the carousel's scroll position drives the track's `translate` itself, a property
+	 * the browser can move off the main thread (Chrome; Safari 26.4+ threads scroll-driven animations). The
+	 * keyframes repeat the CSS clamp: still until the current dot reaches the middle, still again once the last dot
+	 * reaches the edge. Scrubbing hands the track back to the CSS position and its transition.
+	 */
+	$effect(() => {
+		const strip = frameUi.carousel;
+		const dot = track?.firstElementChild as HTMLElement | null | undefined;
+		if (typeof ScrollTimeline !== "function" || !strip || !track || !dot || !clipped || frameUi.scrubbing) return;
+		const span = trackWidth - dot.offsetWidth;
+		const start = (viewWidth - dot.offsetWidth) / 2 / span;
+		const end = start + (trackWidth - viewWidth) / span;
+		const last = `${viewWidth - trackWidth}px 0`;
+		const animation = track.animate(
+			[
+				{ translate: "0px 0", offset: 0 },
+				{ translate: "0px 0", offset: start },
+				{ translate: last, offset: end },
+				{ translate: last, offset: 1 },
+			],
+			{ timeline: new ScrollTimeline({ source: strip, axis: "x" }), fill: "both" },
+		);
+		return () => animation.cancel();
+	});
 
 	/** Focuses the window at `index` (clamped); true when that changed the focus. */
 	function jump(index: number): boolean {
@@ -142,20 +168,6 @@
 <svelte:window onpointerupcapture={onpointerend} onpointercancelcapture={onpointerend} onblur={() => drag && release()} />
 
 <style>
-	/* Registered so the scroll timeline can animate it and the track inherits it as a number. */
-	@property --carousel-progress {
-		syntax: "<number>";
-		inherits: true;
-		initial-value: 0;
-	}
-	@keyframes carousel-progress {
-		from {
-			--carousel-progress: 0;
-		}
-		to {
-			--carousel-progress: 1;
-		}
-	}
 	.page-control {
 		--dot: var(--dot-sm);
 		position: relative;
@@ -190,7 +202,8 @@
 		min-width: 0;
 		overflow: hidden;
 		&.clipped {
-			/* How far the track slides to centre the current dot, clamped so neither end shows empty space. */
+			/* How far the track slides to centre the current dot, clamped so neither end shows empty space. The
+			   scroll-timeline animation in the script overrides the translate with the same curve. */
 			--offset: clamp(
 				0px,
 				var(--dot) / 2 + var(--carousel-progress) * (var(--track) - var(--dot)) - var(--view) / 2,
@@ -209,19 +222,9 @@
 			}
 		}
 	}
-	/* The strip's scroll position drives the progress directly; JS sets the same value inline as the fallback. */
-	@supports (animation-timeline: scroll()) {
-		.view {
-			animation: carousel-progress linear both;
-			animation-timeline: --carousel;
-		}
-	}
 	/* Scrubbing jumps the strip one window at a time without animation: ease the track between those steps
 	   instead. A fast-start curve keeps its speed when the next step retargets it mid-flight. */
 	.held {
-		.view {
-			animation: none;
-		}
 		@media (prefers-reduced-motion: no-preference) {
 			.track {
 				transition: translate var(--dur) var(--ease-out-quint);

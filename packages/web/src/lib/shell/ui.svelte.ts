@@ -19,6 +19,8 @@ class FrameUi {
 	signInDialog = $state(false);
 	/** Visible part of the active scroll strip as fractions of its scroll width (top bar minimap bracket). */
 	stripView = $state({ start: 0, end: 1 });
+	/** The visible phone carousel's scroll container; the page control follows its scroll timeline. */
+	carousel = $state.raw<HTMLElement | null>(null);
 	/** The phone page control is being dragged: windows switch without the carousel animation. */
 	scrubbing = $state(false);
 

@@ -35,6 +35,16 @@
 		return () => ro.disconnect();
 	});
 
+	// The page control drives its dots from the visible carousel's scroll position.
+	$effect(() => {
+		if (!active || !carousel || !track) return;
+		const el = track;
+		frameUi.carousel = el;
+		return () => {
+			if (frameUi.carousel === el) frameUi.carousel = null;
+		};
+	});
+
 	/** Scrolls the focused column into view (scroll mode only). */
 	function reveal(behavior: ScrollBehavior) {
 		const id = ws.focusedId;
@@ -180,9 +190,5 @@
 				height: calc(var(--h) * 100% - var(--pane-gap));
 			}
 		}
-	}
-	/* The phone page control reads the visible carousel's scroll position from this timeline (scoped in AppFrame). */
-	.desk:not([hidden]) > .track.carousel {
-		scroll-timeline: --carousel x;
 	}
 </style>
