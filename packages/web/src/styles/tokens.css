@@ -101,7 +101,7 @@
 	--info-soft: oklch(from var(--info) l c h / 0.16);
 	--active-line: oklch(from var(--surface-2) l c h / 0.6);
 	/* Phone page control; the iOS variant mirrors UIPageControl's white dots on a blurred capsule. */
-	--page-capsule: oklch(from var(--surface-2) l c h / 0.85);
+	--page-capsule: oklch(from var(--surface-3) l c h / 0.85);
 	--page-capsule-ios: oklch(0 0 0 / 0.28);
 	--page-dot-ios: oklch(1 0 0);
 	--page-dot-ios-dim: oklch(1 0 0 / 0.35);
@@ -168,6 +168,7 @@
 	--dur-shimmer: 1.2s;
 	--dur-spin: 0.9s;
 	--ease: cubic-bezier(0.2, 0, 0, 1);
+	--ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
 
 	/* Sizes */
 	--topbar-h: 2.5rem;
@@ -204,6 +205,10 @@
 	--seg-inset: 2px;
 	--dot-sm: 6px;
 	--dot-md: 8px;
+	/* How far the page control rises while held, so the finger doesn't cover it. */
+	--page-lift: 50px;
+	/* Width of the fade where the page control clips dots that don't fit. */
+	--page-fade: 1rem;
 	--ring-w: 1.5px;
 	--map-h: 12px;
 	--map-unit: 40px;
@@ -255,6 +260,8 @@
 	--z-dialog: 400;
 	--z-toast: 500;
 	--z-tooltip: 600;
+	/* The held page control rises over everything else on the page. */
+	--z-scrub: 700;
 }
 
 @media (max-width: 639px) {

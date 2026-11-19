@@ -16,8 +16,7 @@
 	const needsInput = $derived(ws.windows.some((w) => paneStatuses.get(w.id)?.needsInput));
 </script>
 
-<nav class="bottombar" aria-label="Shell">
-	<PageControl />
+<nav class="bottombar" class:scrubbing={frameUi.scrubbing} aria-label="Shell">
 	<Menu label="Workspaces" placement="top-start">
 		{#snippet trigger(props)}
 			<button {...props} class="item ws">
@@ -37,6 +36,9 @@
 		<MenuItem icon={Icons.Add} onselect={() => shell.addWorkspace()}>New workspace</MenuItem>
 		<MenuItem icon={Icons.Rename} onselect={() => (frameUi.renameWorkspace = ws.id)}>Rename…</MenuItem>
 	</Menu>
+
+	<!-- Always present, so the buttons keep their place when the window count crosses one. -->
+	<div class="pager"><PageControl /></div>
 
 	<button class="item" aria-label="Overview" onclick={() => (frameUi.overview = true)} use:tooltip>
 		<span class="glyph">
@@ -60,7 +62,6 @@
 		position: relative;
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
 		gap: var(--sp-2);
 		height: calc(var(--bottombar-h) + var(--safe-bottom));
 		padding: 0 calc(var(--sp-2) + var(--safe-right)) var(--safe-bottom) calc(var(--sp-2) + var(--safe-left));
@@ -68,6 +69,15 @@
 		border-block-start: var(--border);
 		z-index: var(--z-bar);
 		flex: none;
+		&.scrubbing {
+			z-index: var(--z-scrub);
+		}
+	}
+	.pager {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		justify-content: center;
 	}
 	.item {
 		display: inline-flex;

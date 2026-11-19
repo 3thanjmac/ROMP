@@ -9,6 +9,7 @@
 	import { session as me } from "../../lib/shell/session.svelte";
 	import { shell } from "../../lib/shell/shell.svelte";
 	import type { WindowOf } from "../../lib/shell/types";
+	import { frameUi } from "../../lib/shell/ui.svelte";
 	import { viewport } from "../../lib/shell/viewport.svelte";
 	import AsyncButton from "../../lib/ui/AsyncButton.svelte";
 	import Banner from "../../lib/ui/Banner.svelte";
@@ -133,7 +134,8 @@
 	}
 </script>
 
-<div class="agent">
+<!-- Scrubbing the page control flips through windows; the chat stays out of the way until the finger lifts. -->
+<div class="agent" class:scrubbing={frameUi.scrubbing}>
 	{#if gone}
 		<Banner tone="neutral" icon={Icons.Warn} text="This agent session no longer exists.">
 			{#snippet actions()}
@@ -237,6 +239,17 @@
 		min-height: 0;
 		min-width: 0;
 		background: var(--surface-1);
+		/* The window frame behind it is the same surface, so fading the whole pane reads as the chat fading. */
+		transition: opacity var(--dur) var(--ease);
+		&.scrubbing {
+			opacity: 0;
+			transition: none;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.agent {
+			transition: none;
+		}
 	}
 	.center {
 		flex: 1;

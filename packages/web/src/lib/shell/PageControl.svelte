@@ -1,12 +1,17 @@
 <script lang="ts">
 	/**
 	 * Phone carousel position: one dot per window, the visible one highlighted. It follows the strip while a swipe
-	 * is in flight (frameUi.stripView), not only the settled focus. Like UIPageControl it is also a scrubber: a tap
-	 * or drag along it jumps straight to the window under the finger, with no carousel animation.
+	 * is in flight (frameUi.stripView), not only the settled focus. Pressing it never changes the page: press and
+	 * drag steps one window per dot pitch of travel. While held it rises above the finger so the dots stay visible.
 	 */
 	import { displayTitle, layoutMode, shell } from "./shell.svelte";
 	import { frameUi } from "./ui.svelte";
 	import { IPHONE } from "./viewport.svelte";
+
+	/** Minimum drag distance per page; the plain dots are closer together than a finger can step reliably. */
+	const STEP_MIN_PX = 16;
+	/** A short tick per page; navigator.vibrate exists on Android browsers, not iOS Safari. */
+	const HAPTIC_MS = 10;
 
 	const ws = $derived(shell.active);
 	const count = $derived(ws.windows.length);
@@ -14,35 +19,44 @@
 	const currentWin = $derived(ws.windows[current]);
 
 	let el = $state<HTMLDivElement>();
-	let pointer: number | null = null;
+	let track = $state<HTMLDivElement>();
+	let viewWidth = $state(0);
+	let trackWidth = $state(0);
+	let drag: { pointer: number; x: number; index: number; step: number } | null = null;
 
-	function jump(index: number) {
+	/** When there are more dots than fit, the track slides to keep the current one in view. */
+	const offset = $derived.by(() => {
+		const dot = track?.children[current] as HTMLElement | undefined;
+		if (!dot || trackWidth <= viewWidth) return 0;
+		return Math.max(0, Math.min(trackWidth - viewWidth, dot.offsetLeft + dot.offsetWidth / 2 - viewWidth / 2));
+	});
+	const clipped = $derived(trackWidth > viewWidth);
+
+	/** Focuses the window at `index` (clamped); true when that changed the focus. */
+	function jump(index: number): boolean {
 		const win = ws.windows[Math.max(0, Math.min(count - 1, index))];
-		if (win && win.id !== ws.focusedId) shell.focus(win.id);
-	}
-
-	/** The window whose share of the bar's width is under `clientX`. */
-	function jumpTo(clientX: number) {
-		if (!el) return;
-		const rect = el.getBoundingClientRect();
-		jump(Math.floor(((clientX - rect.left) / Math.max(1, rect.width)) * count));
+		if (!win || win.id === ws.focusedId) return false;
+		shell.focus(win.id);
+		return true;
 	}
 
 	function onpointerdown(e: PointerEvent) {
-		if (pointer !== null || !el) return;
-		pointer = e.pointerId;
+		if (drag || !el || !track || !e.isPrimary) return;
+		const [a, b] = track.children;
+		const pitch = a && b ? b.getBoundingClientRect().left - a.getBoundingClientRect().left : 0;
+		drag = { pointer: e.pointerId, x: e.clientX, index: current, step: Math.max(STEP_MIN_PX, pitch) };
 		el.setPointerCapture(e.pointerId);
 		frameUi.scrubbing = true;
-		jumpTo(e.clientX);
 	}
 
 	function onpointermove(e: PointerEvent) {
-		if (e.pointerId === pointer) jumpTo(e.clientX);
+		if (e.pointerId !== drag?.pointer) return;
+		if (jump(drag.index + Math.trunc((e.clientX - drag.x) / drag.step)) && "vibrate" in navigator) navigator.vibrate(HAPTIC_MS);
 	}
 
 	function onpointerup(e: PointerEvent) {
-		if (e.pointerId !== pointer) return;
-		pointer = null;
+		if (e.pointerId !== drag?.pointer) return;
+		drag = null;
 		frameUi.scrubbing = false;
 	}
 
@@ -68,7 +82,7 @@
 		bind:this={el}
 		class="page-control"
 		class:ios={IPHONE}
-		class:scrubbing={frameUi.scrubbing}
+		class:held={frameUi.scrubbing}
 		role="slider"
 		tabindex="0"
 		aria-label="Windows"
@@ -82,42 +96,77 @@
 		onpointercancel={onpointerup}
 		{onkeydown}
 	>
-		{#each ws.windows as win, i (win.id)}
-			<span class="dot" class:on={i === current}></span>
-		{/each}
+		<!-- Clipped dots fade out at whichever edge still has more of them beyond it. -->
+		<div
+			class="view"
+			class:clipped
+			bind:clientWidth={viewWidth}
+			style:--fade-start={offset > 0 ? "var(--page-fade)" : "0px"}
+			style:--fade-end={offset < trackWidth - viewWidth - 1 ? "var(--page-fade)" : "0px"}
+		>
+			<div class="track" bind:this={track} bind:clientWidth={trackWidth} style:translate="{-offset}px 0">
+				{#each ws.windows as win, i (win.id)}
+					<span class="dot" class:on={i === current}></span>
+				{/each}
+			</div>
+		</div>
 	</div>
 {/if}
 
 <style>
 	.page-control {
-		position: absolute;
-		top: 0;
-		left: 50%;
-		translate: -50% -50%;
+		position: relative;
 		display: flex;
-		align-items: center;
-		gap: var(--sp-1);
-		padding: var(--sp-1) var(--sp-2);
+		min-width: 0;
+		max-width: 100%;
+		padding: var(--sp-2) var(--sp-3);
 		border-radius: var(--radius-full);
 		background: var(--page-capsule);
 		border: var(--border);
 		touch-action: none;
 		user-select: none;
 		-webkit-user-select: none;
-		cursor: pointer;
-		transition: scale var(--dur);
-		/* The capsule is a few px tall; this widens what a finger can grab without changing how it looks. It
-		   reaches up over the desk more than down, where the bar's own buttons sit. */
+		cursor: grab;
+		transition:
+			translate var(--dur) var(--ease-out-quint),
+			scale var(--dur) var(--ease-out-quint);
+		/* Grabbable over the bar's full height without reaching sideways into the neighbouring buttons. */
 		&::before {
 			content: "";
 			position: absolute;
-			inset: calc(-1 * var(--sp-3)) calc(-1 * var(--sp-2)) calc(-1 * var(--sp-1));
+			inset: calc(-1 * var(--sp-3)) 0;
 		}
-		&.scrubbing {
+		/* Lifted over the page, it frosts what's behind it so the dots stay legible. */
+		&.held {
+			translate: 0 calc(-1 * var(--page-lift));
 			scale: 1.15;
+			cursor: grabbing;
+			backdrop-filter: blur(var(--page-blur));
+			-webkit-backdrop-filter: blur(var(--page-blur));
 		}
 	}
+	.view {
+		min-width: 0;
+		overflow: hidden;
+		&.clipped {
+			mask-image: linear-gradient(
+				to right,
+				transparent,
+				black var(--fade-start),
+				black calc(100% - var(--fade-end)),
+				transparent
+			);
+		}
+	}
+	.track {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-1);
+		width: max-content;
+		transition: translate var(--dur) var(--ease);
+	}
 	.dot {
+		flex: none;
 		width: var(--dot-sm);
 		height: var(--dot-sm);
 		border-radius: var(--radius-full);
@@ -133,11 +182,13 @@
 	}
 	/* UIPageControl: 8px white dots, the inactive ones translucent, on a blurred dark capsule. */
 	.ios {
-		gap: var(--sp-2);
 		border: none;
 		background: var(--page-capsule-ios);
 		backdrop-filter: blur(var(--page-blur));
 		-webkit-backdrop-filter: blur(var(--page-blur));
+		.track {
+			gap: var(--sp-2);
+		}
 		.dot {
 			width: var(--dot-md);
 			height: var(--dot-md);
@@ -150,6 +201,7 @@
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.page-control,
+		.track,
 		.dot {
 			transition: none;
 		}
