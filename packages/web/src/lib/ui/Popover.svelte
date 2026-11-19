@@ -17,6 +17,10 @@
 		matchWidth?: boolean;
 		/** Center the panel horizontally in the viewport, above or below the anchor. */
 		center?: boolean;
+		/** Place the panel against this element instead of `anchor`; presses on `anchor` still don't dismiss. */
+		placeAt?: HTMLElement | null;
+		/** Frosted: a translucent surface over the blurred page. */
+		glass?: boolean;
 		children: Snippet;
 	}
 
@@ -31,13 +35,15 @@
 		onkeydown,
 		matchWidth = false,
 		center = false,
+		placeAt = null,
+		glass = false,
 		children,
 	}: Props = $props();
 
 	function attach(node: HTMLElement) {
 		showTop(node);
 		const target = anchor;
-		const stopPlacing = target ? place(target, node, placement, { center }) : null;
+		const stopPlacing = target ? place(placeAt ?? target, node, placement, { center }) : null;
 		const popEscape = pushEscape(() => ondismiss("escape"));
 		const onDown = (e: PointerEvent) => {
 			const t = e.target as Node | null;
@@ -62,6 +68,7 @@
 		popover="manual"
 		class="popover"
 		class:match={matchWidth}
+		class:glass
 		{role}
 		aria-label={label}
 		tabindex="-1"
@@ -92,5 +99,10 @@
 	.match {
 		width: var(--anchor-w);
 		min-width: 0;
+	}
+	.glass {
+		background: var(--glass);
+		backdrop-filter: blur(var(--glass-blur));
+		-webkit-backdrop-filter: blur(var(--glass-blur));
 	}
 </style>

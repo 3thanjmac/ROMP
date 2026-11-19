@@ -106,6 +106,9 @@
 	--page-dot-ios: oklch(1 0 0);
 	--page-dot-ios-dim: oklch(1 0 0 / 0.35);
 	--page-blur: 12px;
+	/* Frosted floating panels: a translucent surface over the blurred page. */
+	--glass: oklch(from var(--surface-2) l c h / 0.7);
+	--glass-blur: 16px;
 
 	--ansi-bright-black: oklch(from var(--ansi-black) calc(l + 0.08) c h);
 	--ansi-bright-red: oklch(from var(--ansi-red) calc(l + 0.08) c h);

@@ -25,6 +25,7 @@
 	let touched = $state(false);
 	/** Kept across tasks: the next task likely wants the same model. */
 	let thinking = $state<ModelChoice>({ model: null, level: null });
+	let form = $state<HTMLFormElement | null>(null);
 
 	const hasDraft = $derived(prompt.trim() !== "");
 
@@ -66,7 +67,7 @@
 	}
 </script>
 
-<form class="composer" onsubmit={(e) => e.preventDefault()}>
+<form class="composer" bind:this={form} onsubmit={(e) => e.preventDefault()}>
 	<label>
 		What should the agent do?
 		<textarea
@@ -86,7 +87,13 @@
 				value={repo.land}
 				onchange={(land) => data.setLand(repo, land)}
 			/>
-			<ThinkingButton value={thinking} allowDefault onchange={(choice) => (thinking = choice)} placement="bottom-start" />
+			<ThinkingButton
+				value={thinking}
+				allowDefault
+				onchange={(choice) => (thinking = choice)}
+				placement="bottom-start"
+				phoneAnchor={form}
+			/>
 		</div>
 		<div class="buttons">
 			{#if hasDraft}<Button variant="ghost" onclick={clear}>Cancel</Button>{/if}

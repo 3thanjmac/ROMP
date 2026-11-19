@@ -29,6 +29,8 @@
 		/** Button label while `disabled`. */
 		disabledLabel?: string;
 		placement?: Placement;
+		/** On a phone, dock the panel under this element (e.g. the whole composer), matching its width. */
+		phoneAnchor?: HTMLElement | null;
 	}
 
 	let {
@@ -43,7 +45,10 @@
 		disabled = false,
 		disabledLabel,
 		placement = "bottom-end",
+		phoneAnchor = null,
 	}: Props = $props();
+
+	const docked = $derived(viewport.layout === "phone" && phoneAnchor !== null);
 
 	const DEFAULT = "";
 	const LEVEL_LABEL: Record<ThinkingLevel, string> = {
@@ -180,18 +185,21 @@
 	{@attach ref}
 />
 
-<!-- On a phone the panel is nearly as wide as the screen, so it is centered rather than hung off the button. -->
+<!-- On a phone the panel is nearly as wide as the screen, so it is centered (or docked under `phoneAnchor`) rather than hung off the button. -->
 <Popover
 	{anchor}
 	{open}
 	{placement}
-	center={viewport.layout === "phone"}
+	center={viewport.layout === "phone" && !docked}
+	placeAt={docked ? phoneAnchor : null}
+	matchWidth={docked}
+	glass
 	role="dialog"
 	label="Model and Thinking"
 	bind:panel
 	ondismiss={(how) => hide(how === "escape")}
 >
-	<div class="thinking">
+	<div class="thinking" class:docked>
 		<div class="head">
 			<h2>Model and Thinking</h2>
 			{#if busy}
@@ -238,6 +246,9 @@
 		gap: var(--sp-3);
 		inline-size: min(calc(var(--wheel-model-w) + var(--wheel-effort-w) + var(--sp-2) * 3), calc(100vw - var(--sp-4)));
 		padding: var(--sp-2);
+		&.docked {
+			inline-size: auto;
+		}
 	}
 	.head {
 		display: flex;
