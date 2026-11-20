@@ -43,15 +43,15 @@ sudo tailscale up --ssh --advertise-tags=tag:devbox
 
 ## 3. Copy ROMP into the VM
 
-Run this step from your own account, not a root shell. The checkout at `/opt/romp` should belong to you, so `git pull` works later without `sudo`. The path must be lowercase `/opt/romp`, because the scripts and services look for exactly that path and Linux paths are case-sensitive.
+The path must be lowercase `/opt/romp`, because the scripts and services look for exactly that path and Linux paths are case-sensitive. `install.sh` gives the checkout to root: everyone can read it, nobody (including agents) can change it, and it only moves through `sudo romp-update` (see [Updating](#updating)).
 
-Either push the repo to a private GitHub repo and clone it:
+Either clone it from GitHub:
 
 ```sh
-sudo mkdir -p /opt/romp
-sudo chown "$USER": /opt/romp
-git clone https://github.com/<owner>/ROMP.git /opt/romp
+sudo git clone https://github.com/<owner>/ROMP.git /opt/romp
 ```
+
+Updates fetch as root. That needs nothing for a public repo; for a private one, sign root in with `sudo gh auth login`, then `sudo gh auth setup-git`.
 
 Or copy it over Tailscale (PowerShell shown; any shell with `tar` and `scp` works the same):
 
@@ -62,7 +62,6 @@ scp romp.tgz <vm-name>:/tmp/
 ```
 ```sh
 sudo mkdir -p /opt/romp && sudo tar -xzf /tmp/romp.tgz -C /opt/romp --strip-components=1
-sudo chown -R "$USER": /opt/romp
 ```
 
 ## 4. Install
@@ -71,7 +70,7 @@ sudo chown -R "$USER": /opt/romp
 sudo /opt/romp/deploy/install.sh
 ```
 
-This installs Bun, pnpm, tsgo, mergiraf, gh and Node, creates the `romp` group and service user, builds the web app, initialises `/srv/romp`, and starts `romp-queue.service`. It also installs `romp-update.timer`, which can keep the VM up to date with GitHub; it is off until you switch it on (see [Updating](#updating)).
+This installs Bun, pnpm, tsgo, mergiraf, gh and Node, creates the `romp` group and service user, builds the web app, initialises `/srv/romp`, and starts `romp-queue.service`. It also installs `romp-update.service`, which brings the VM up to date with GitHub when someone presses **Update now** in Settings, runs `sudo romp-update`, or switches on the update timer (see [Updating](#updating)).
 
 Give the queue its credentials once. It pushes to GitHub and runs an agent to resolve merge conflicts. These belong to the `romp` service user, which only the queue runs as; they are not shared with anyone's account, and each person signs in separately (step 5).
 
@@ -220,28 +219,42 @@ Some devices bypass the router's DNS and never see the record: Android's Private
 
 ## Updating
 
-```sh
-cd /opt/romp && git pull        # or copy a new tarball
-sudo /opt/romp/deploy/install.sh    # also updates everyone's shared OMP settings
-```
+Any of these checks GitHub and, when the checkout's branch has new commits, fast-forwards `/opt/romp` and runs `install.sh` (which also updates everyone's shared OMP settings):
+
+- **Update now** at the bottom of Settings in the web app, for anyone in the `romp` group. The section shows the installed commit and how the last check went.
+- `sudo romp-update` in a terminal. It prints what happened.
+- The update timer, every 10 minutes (below).
+
+All three run the same `romp-update.service`, so an update started from a ROMP terminal finishes even though restarting the gateways closes that terminal. For the same reason `install.sh` refuses to run from a ROMP terminal; run it from SSH or the console if you need it directly.
+
+Restarting a gateway stops agents that are in the middle of a turn and closes open terminals. So an update waits while any agent is working or the merge queue is landing a task. Agents resume their conversations after the restart; terminals start fresh. Whatever reaches the branch on GitHub runs as root on the VM, with no one checking it first.
+
+- See what it did: `journalctl -u romp-update` (for example, `Update to 1a2b3c4 waits: agents are running for alice.`).
+- It never overwrites work on the VM: if `/opt/romp` has commits that are not on GitHub, or uncommitted changes in the way, it logs the reason and does nothing.
+- If `install.sh` fails (for example, a build error), that commit is not retried. Push a fix to GitHub, or run `sudo /opt/romp/deploy/install.sh` from SSH.
 
 ### Automatic updates (off by default)
 
-To have the VM do this on its own, switch on the update timer once:
-
 ```sh
-sudo systemctl enable --now romp-update.timer
+sudo systemctl enable --now romp-update.timer     # off again: sudo systemctl disable --now romp-update.timer
 ```
 
-It checks GitHub every 10 minutes. When the checkout's branch has new commits, it fast-forwards `/opt/romp` and runs `install.sh`. Fetching a public repo needs no credentials and costs nothing. `install.sh` never switches the timer on or off, so your choice survives updates.
+It checks every 10 minutes, so an update that had to wait for agents goes in on a later tick. Fetching a public repo needs no credentials and costs nothing. `install.sh` never switches the timer on or off, so your choice survives updates.
 
-Restarting a gateway stops agents that are in the middle of a turn and closes open terminals. So an update waits while any agent is working or the merge queue is landing a task, and tries again 10 minutes later. Agents resume their conversations after the restart; terminals start fresh. Whatever reaches the branch on GitHub runs as root on the VM, with no one checking it first.
+### Rolling back
 
-- See what it did: `journalctl -u romp-update` (for example, `update to 1a2b3c4 waits: agents are running for alice`).
-- Check now instead of waiting: `sudo romp-update` (works with the timer off too).
-- Turn it off again: `sudo systemctl disable --now romp-update.timer`.
-- It never overwrites work on the VM: if `/opt/romp` has commits that are not on GitHub, or uncommitted changes in the way, it logs the reason and does nothing.
-- If `install.sh` fails (for example, a build error), that commit is not retried. Fix the problem and push a new commit, or run `sudo /opt/romp/deploy/install.sh` yourself.
+```sh
+sudo romp-update rollback 1a2b3c4     # install an older commit
+sudo romp-update resume               # later: follow GitHub again and update now
+```
+
+After a rollback, updates (the button, the timer and `sudo romp-update`) stay paused at that commit until `resume`, so the timer can't put the bad commit straight back. Installing an older commit any other way, say `git reset` in `/opt/romp` followed by `sudo romp-update` or `install.sh`, pauses updates the same way. Reverting the bad commit on GitHub also works and needs no pause.
+
+Keep SSH or console access to the VM: if an update breaks the gateway, the web app can't fix it.
+
+### Working on ROMP inside ROMP
+
+ROMP can be one of the repos it manages; agents work in task worktrees and the merge queue lands their changes on GitHub, from where the VM updates. A copy of ROMP that runs from anywhere but `/opt/romp` (a worktree, a test gateway) refuses the live `/srv/romp`, which a ROMP terminal's `ROMP_ROOT` points at. Give it scratch directories instead: `ROMP_ROOT=$(mktemp -d) ROMP_WORK=$(mktemp -d)`, plus a gateway config with its own `listen` port and `state_dir` (a gateway refuses a state directory another gateway is using). `ROMP_ALLOW_LIVE=1` lifts the refusal on purpose. The unit tests use their own temporary directories and need none of this.
 
 ## Troubleshooting
 
@@ -255,7 +268,7 @@ Linux runs a file as a program only if its execute bit is set. Git stores that b
 
 ```sh
 sudo bash /opt/romp/deploy/install.sh
-chmod +x /opt/romp/deploy/*.sh
+sudo chmod +x /opt/romp/deploy/*.sh
 ```
 
 ### `ROMP checkout not found at /opt/romp (set ROMP_SRC)`
@@ -268,31 +281,17 @@ sudo mv /opt/ROMP /opt/romp
 
 Setting `ROMP_SRC` gets `install.sh` past this check, but the `romp` and `romp-gateway` commands and the systemd services still look in `/opt/romp`, so renaming is the real fix.
 
-### `detected dubious ownership` or `Permission denied` on `.git/...` during `git pull`
+### `Permission denied` when changing `/opt/romp`
 
-Root owns the checkout, usually because it was cloned or extracted in a root shell or with `sudo`. Git suggests `git config --global --add safe.directory /opt/romp`, but that only silences the ownership warning. It does not let you write to the folder, so the next `git pull` fails with `cannot open '.git/FETCH_HEAD': Permission denied`. Avoid `sudo git pull` as well, because it creates more root-owned files inside `.git`. Give the folder to your account instead:
-
-```sh
-sudo chown -R "$USER": /opt/romp
-```
-
-`chown` changes who owns files. `-R` applies it to everything inside the folder. The `user:group` argument sets the owner and the group together. `"$USER":`, with nothing after the colon, means your account and your account's default group. Your shell fills in `$USER` before `sudo` runs, so it is your name, not root's.
-
-`install.sh` later moves the files into the `romp` group so the merge queue's service user can read them. It never changes the owner, so `git pull` keeps working for you. The `romp` group only exists after `install.sh` has got that far, which is why the command above doesn't name it.
-
-If you added a `safe.directory` entry, remove it once the chown is done:
-
-```sh
-git config --global --unset safe.directory /opt/romp
-```
+Root owns the checkout on purpose, so neither people nor their agents can edit or commit there. Update with **Update now** in Settings or `sudo romp-update` instead of `git pull`. Don't `chown` it back: the next `install.sh` returns it to root anyway.
 
 ### `Your local changes to the following files would be overwritten by merge`
 
-A file in the checkout differs from the last commit, for example after editing a script on the VM or running `chmod` on it. `git status` lists the files and `git diff` shows what changed. If you don't need the change, discard it and pull again:
+A file in the checkout differs from the last commit, for example after editing a script on the VM or running `chmod` on it, and `romp-update` stops there. `sudo git -C /opt/romp status` lists the files and `sudo git -C /opt/romp diff` shows what changed. If you don't need the change, discard it and update again:
 
 ```sh
-git restore deploy/install.sh
-git pull
+sudo git -C /opt/romp restore deploy/install.sh
+sudo romp-update
 ```
 
 ### `omp: command not found`

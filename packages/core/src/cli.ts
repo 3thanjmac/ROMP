@@ -142,6 +142,8 @@ async function main(argv: string[]): Promise<number> {
 		console.log(USAGE);
 		return cmd ? 0 : 2;
 	}
+	// Hub hooks work out everything from the repository they run in, so they never need (or check) the root.
+	if (cmd === "hook") return hook(sub);
 	const env = rompEnv();
 	switch (cmd) {
 		case "init": {
@@ -262,21 +264,6 @@ async function main(argv: string[]): Promise<number> {
 			}
 			break;
 		}
-		case "hook": {
-			const input = await Bun.stdin.text();
-			if (sub === "pre-receive") {
-				const errors = preReceive(input);
-				for (const e of errors) console.error(e);
-				return errors.length > 0 ? 1 : 0;
-			}
-			if (sub === "post-receive") {
-				const gitDir = path.resolve(process.env.GIT_DIR ?? ".");
-				for (const job of postReceive(gitDir, input))
-					console.error(`romp: queued ${job.user}/${job.slug} (${job.commit.slice(0, 12)}) for landing`);
-				return 0;
-			}
-			break;
-		}
 		case "omp-defaults": {
 			const paths = ompDefaultsPaths(env);
 			const action = sub ?? "status";
@@ -291,6 +278,22 @@ async function main(argv: string[]): Promise<number> {
 		}
 	}
 	throw new UsageError(`unknown command: ${args.positional.join(" ")}`);
+}
+
+async function hook(kind: string | undefined): Promise<number> {
+	const input = await Bun.stdin.text();
+	if (kind === "pre-receive") {
+		const errors = preReceive(input);
+		for (const e of errors) console.error(e);
+		return errors.length > 0 ? 1 : 0;
+	}
+	if (kind === "post-receive") {
+		const gitDir = path.resolve(process.env.GIT_DIR ?? ".");
+		for (const job of postReceive(gitDir, input))
+			console.error(`romp: queued ${job.user}/${job.slug} (${job.commit.slice(0, 12)}) for landing`);
+		return 0;
+	}
+	throw new UsageError(`unknown hook: ${kind ?? ""}`);
 }
 
 try {

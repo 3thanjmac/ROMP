@@ -699,3 +699,36 @@ export interface CloudflareWorker {
 export interface CloudflareWorkerUpdate {
 	subscribed: boolean;
 }
+
+// ───────────────────────────── ROMP updates ─────────────────────────────
+
+/**
+ * `GET /api/update`, and the answer to `POST /api/update`, which asks the VM's `romp-update.service` to check GitHub
+ * now (deploy/bin/romp-update). Installing an update restarts every gateway, this one included.
+ */
+export interface UpdateStatus {
+	/** False on gateways not set up by deploy/install.sh (development), which have nothing to update. */
+	available: boolean;
+	/** romp-update is checking or installing, or a request is waiting for it to start. */
+	running: boolean;
+	/** The installed commit. */
+	installed: InstalledCommit | null;
+	/** How the latest check ended; null before the first. */
+	last: UpdateResult | null;
+}
+
+export interface InstalledCommit {
+	sha: string;
+	subject: string;
+	/** Commit time, ms since the epoch. */
+	at: number;
+}
+
+export interface UpdateResult {
+	/** current: nothing new. updated: installed a new commit. waiting: agents or the merge queue were busy. paused: after a rollback. */
+	state: "current" | "updated" | "waiting" | "paused" | "failed";
+	/** One sentence, e.g. "Update to 1a2b3c4 waits: agents are running for alice. Press Update again in a few minutes." */
+	message: string;
+	/** When the check ended, ms since the epoch. */
+	at: number;
+}

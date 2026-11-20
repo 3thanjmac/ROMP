@@ -62,8 +62,7 @@ LOGIN=you@github  GIT_NAME="Your Name"  GIT_EMAIL=you@example.com
 sudo apt-get update && sudo apt-get install -y curl git
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up --ssh                      # open the printed link to sign in
-sudo mkdir -p /opt/romp && sudo chown "$USER": /opt/romp
-git clone https://github.com/3thanjmac/ROMP.git /opt/romp
+sudo git clone https://github.com/3thanjmac/ROMP.git /opt/romp
 sudo /opt/romp/deploy/install.sh
 sudo -iu romp gh auth login                  # merge queue: HTTPS, yes to authenticating git
 sudo -iu romp omp setup                      # merge queue: provider and models
@@ -88,7 +87,7 @@ If `add-user.sh` reports that HTTPS is off for your tailnet, open the link it pr
    ```sh
    sudo /opt/romp/deploy/install.sh
    ```
-   This installs Bun, pnpm, tsgo, Node, git, mergiraf, gh and the libraries headless Chrome needs (for omp's browser tool), and creates the `romp` group and service user. It also builds the web app, puts `romp` and `romp-gateway` on PATH, initialises `/srv/romp`, and starts `romp-queue.service`. Re-run it after every update, or switch on automatic updates with `sudo systemctl enable --now romp-update.timer`: it pulls new commits from GitHub every 10 minutes and re-runs `install.sh` once no agent is mid-turn ([details](docs/deploy.md#updating)).
+   This installs Bun, pnpm, tsgo, Node, git, mergiraf, gh and the libraries headless Chrome needs (for omp's browser tool), and creates the `romp` group and service user. It also builds the web app, puts `romp` and `romp-gateway` on PATH, initialises `/srv/romp`, and starts `romp-queue.service`. It gives the checkout to root, so it changes only through updates: press **Update now** in Settings, run `sudo romp-update`, or switch on automatic updates with `sudo systemctl enable --now romp-update.timer`. Each pulls new commits from GitHub and re-runs `install.sh` once no agent is mid-turn ([details](docs/deploy.md#updating)).
 3. **Give the merge queue credentials** so it can push and resolve conflicts. They belong to the `romp` service user, which only the queue runs as, so nobody else's account sees them. Run these once on the VM:
    ```sh
    sudo -iu romp gh auth login     # or an SSH deploy key in /var/lib/romp/.ssh

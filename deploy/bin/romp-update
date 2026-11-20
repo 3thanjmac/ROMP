@@ -1,52 +1,128 @@
 #!/usr/bin/env bash
-# Pulls new ROMP commits into /opt/romp and applies them with install.sh. Run by romp-update.timer as root;
-# `sudo romp-update` checks right away. Restarting gateways stops running agent turns, so an update waits
-# until no agent is mid-turn and the merge queue is not landing anything, and retries on the next tick.
+# Pulls new ROMP commits into /opt/romp and applies them with install.sh. The work always runs in romp-update.service,
+# started by romp-update.timer, by the Update button in ROMP's settings (romp-update.path) or by this command:
+#   sudo romp-update                    check now and show what happened
+#   sudo romp-update rollback <commit>  install an older commit and pause updates
+#   sudo romp-update resume             end the pause and check now
+# Restarting gateways stops running agent turns, so an update waits until no agent is mid-turn and the merge queue is
+# not landing anything.
 set -euo pipefail
 
 ROMP_SRC="${ROMP_SRC:-/opt/romp}"
 ROMP_ROOT="${ROMP_ROOT:-/srv/romp}"
 STATE_DIR=/var/lib/romp-update
+# Exists while updates are paused after a rollback; /opt/romp stays at the commit it holds.
+HOLD="$STATE_DIR/hold"
+# The Update button drops a file here; romp-update.path starts the service while the directory is not empty.
+REQUESTS="$STATE_DIR/requests"
 
 [[ $EUID -eq 0 ]] || { echo "romp-update must run as root" >&2; exit 1; }
 
-# git runs as the checkout's owner, so .git stays theirs and their own `git pull` keeps working.
-owner="$(stat -c %U "$ROMP_SRC")"
-owner_home="$(getent passwd "$owner" | cut -d: -f6)"
-git_() { runuser -u "$owner" -- env HOME="$owner_home" GIT_TERMINAL_PROMPT=0 git -C "$ROMP_SRC" "$@"; }
+# Root owns the checkout (install.sh), so git runs as root.
+git_() { GIT_TERMINAL_PROMPT=0 git -C "$ROMP_SRC" "$@"; }
+
+if ! grep -q '/romp-update\.service$' /proc/self/cgroup; then
+	# Not the service: start it and wait. install.sh restarts every gateway, which would end a ROMP terminal this ran
+	# in, and the update with it; the service carries on regardless.
+	case "${1:-}" in
+	"") ;;
+	resume)
+		rm -f "$HOLD"
+		echo "updates resumed"
+		;;
+	rollback)
+		[[ $# -eq 2 ]] || { sed -n '4,6p' "$0" >&2; exit 2; }
+		if systemctl is-active --quiet romp-update.service; then
+			echo "romp-update: an update is running; try again when it finishes" >&2
+			exit 1
+		fi
+		target="$(git_ rev-parse --verify --quiet "$2^{commit}")" || { echo "romp-update: no commit $2 in $ROMP_SRC" >&2; exit 1; }
+		git_ reset --hard --quiet "$target"
+		install -d -m 0755 "$STATE_DIR"
+		echo "$target" >"$HOLD"
+		;;
+	*) sed -n '4,6p' "$0" >&2; exit 2 ;;
+	esac
+	invocation() { systemctl show -p InvocationID --value romp-update.service; }
+	before="$(invocation)"
+	status=0
+	systemctl start romp-update.service || status=$?
+	# A start systemd refused has no run of its own to show; one that ran (or was already running) does.
+	after="$(invocation)"
+	[[ $status -ne 0 && $after == "$before" ]] || journalctl --no-pager -o cat _SYSTEMD_INVOCATION_ID="$after"
+	exit "$status"
+fi
+
+# The outcome of this run, for the settings page.
+report() {
+	local message="${2//\\/\\\\}"
+	message="${message//\"/\\\"}"
+	printf '{"state":"%s","message":"%s","at":%s}\n' "$1" "$message" "$(date +%s%3N)" >"$STATE_DIR/last.json.tmp"
+	mv "$STATE_DIR/last.json.tmp" "$STATE_DIR/last.json"
+}
+finish() {
+	echo "$2"
+	report "$1" "$2"
+	exit 0
+}
+fail() {
+	echo "$1" >&2
+	report failed "$1"
+	trap - EXIT
+	exit 1
+}
+
+install -d -m 0755 "$STATE_DIR"
+trap '[[ $? -eq 0 ]] || report failed "The update check failed. See journalctl -u romp-update."' EXIT
+# This run answers every request made so far; a request arriving from now on starts another run.
+find "$REQUESTS" -mindepth 1 -delete 2>/dev/null || true
 
 git_ fetch --quiet
 head="$(git_ rev-parse HEAD)"
 upstream="$(git_ rev-parse '@{upstream}')"
 applied="$(cat "$STATE_DIR/applied" 2>/dev/null || true)"
-[[ $head == "$upstream" && $applied == "$head" ]] && exit 0
 
-if ! git_ merge-base --is-ancestor HEAD '@{upstream}'; then
-	echo "$ROMP_SRC has commits that are not on $(git_ rev-parse --abbrev-ref '@{upstream}'); not updating" >&2
-	exit 1
+# /opt/romp moved back to a commit older than the installed one: a rollback. Install it and stop following GitHub.
+if [[ -n $applied && $head != "$applied" ]] && git_ merge-base --is-ancestor HEAD "$applied" 2>/dev/null; then
+	echo "$head" >"$HOLD"
+fi
+if [[ -f $HOLD ]]; then
+	paused="Rolled back to ${head:0:7}; updates are paused until sudo romp-update resume."
+	[[ $applied == "$head" ]] && finish paused "$paused"
+	echo "installing rollback $(git_ log --oneline -1)"
+	echo "$head" >"$STATE_DIR/applied"
+	"$ROMP_SRC/deploy/install.sh" || fail "Installing the rollback to ${head:0:7} failed. See journalctl -u romp-update."
+	finish paused "$paused"
 fi
 
-# Each gateway keeps $XDG_RUNTIME_DIR/romp-gateway.busy while one of its agents is mid-turn.
+[[ $head == "$upstream" && $applied == "$head" ]] && finish current "Up to date at ${head:0:7}."
+
+if ! git_ merge-base --is-ancestor HEAD '@{upstream}'; then
+	fail "$ROMP_SRC has commits that are not on $(git_ rev-parse --abbrev-ref '@{upstream}'); not updating."
+fi
+
+retry="Press Update again in a few minutes."
+systemctl is-active --quiet romp-update.timer && retry="It tries again within 10 minutes."
+# Each gateway keeps $XDG_RUNTIME_DIR/romp-gateway-<port>.busy while one of its agents is mid-turn.
 busy=()
-for marker in /run/user/*/romp-gateway.busy; do
+for marker in /run/user/*/romp-gateway*.busy; do
 	[[ -e $marker ]] && busy+=("$(stat -c %U "$marker")")
 done
 if ((${#busy[@]} > 0)); then
-	echo "update to ${upstream:0:7} waits: agents are running for ${busy[*]}"
-	exit 0
+	finish waiting "Update to ${upstream:0:7} waits: agents are running for $(printf '%s\n' "${busy[@]}" | sort -u | paste -sd ' '). $retry"
 fi
 # Interrupted landings are retried, but waiting avoids redoing a long test run.
 if compgen -G "$ROMP_ROOT/queue/processing/*.json" >/dev/null; then
-	echo "update to ${upstream:0:7} waits: the merge queue is landing a task"
-	exit 0
+	finish waiting "Update to ${upstream:0:7} waits: the merge queue is landing a task. $retry"
 fi
 
 if [[ $head != "$upstream" ]]; then
 	git_ merge --ff-only --quiet '@{upstream}'
 fi
+head="$(git_ rev-parse HEAD)"
 echo "applying $(git_ log --oneline -1)"
 # Recorded before installing, so a commit whose install fails is not retried every few minutes. After fixing
-# the problem, run `sudo /opt/romp/deploy/install.sh` (which records it too) or push a new commit.
-install -d -m 0755 "$STATE_DIR"
-git_ rev-parse HEAD >"$STATE_DIR/applied"
-"$ROMP_SRC/deploy/install.sh"
+# the problem, push a new commit, or reinstall from SSH with `sudo /opt/romp/deploy/install.sh`.
+echo "$head" >"$STATE_DIR/applied"
+"$ROMP_SRC/deploy/install.sh" || fail "Installing ${head:0:7} failed. See journalctl -u romp-update."
+finish updated "Updated to ${head:0:7}."

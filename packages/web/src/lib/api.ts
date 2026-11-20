@@ -41,6 +41,7 @@ import type {
 	TaskShip,
 	TermCreate,
 	TermInfo,
+	UpdateStatus,
 } from "@romp/protocol";
 import { net } from "./conn/net.svelte";
 import { signIn } from "./conn/signin.svelte";
@@ -189,6 +190,11 @@ export const api = {
 		workers: () => request<CloudflareWorker[]>("GET", "/api/cloudflare/workers"),
 		setWorker: (name: string, subscribed: boolean) =>
 			request<undefined>("PUT", `/api/cloudflare/workers/${q(name)}`, { subscribed } satisfies CloudflareWorkerUpdate),
+	},
+	update: {
+		status: () => request<UpdateStatus>("GET", "/api/update"),
+		/** Asks the VM's romp-update service to check GitHub now. */
+		run: () => request<UpdateStatus>("POST", "/api/update"),
 	},
 	/** LAN sign-in; the gateway answers with the session cookie. */
 	login: (req: LoginRequest) => request<undefined>("POST", "/api/login", req),

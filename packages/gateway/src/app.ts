@@ -81,6 +81,7 @@ import { MAX_STATE_BYTES, type ShellStateStore } from "./shellstate.ts";
 import { serveStatic } from "./static.ts";
 import { TaskSetups } from "./tasksetup.ts";
 import type { TerminalManager } from "./terminals.ts";
+import type { Updates } from "./updates.ts";
 import { errorMessage, isRecord } from "./util.ts";
 import type { Socket, WsData } from "./ws.ts";
 
@@ -106,6 +107,7 @@ export interface AppDeps {
 	/** Background titles for tasks created with `autoTitle`. */
 	titles: TitleGenerator;
 	repoSearch: RepoSearch;
+	updates: Updates;
 }
 
 interface Ctx {
@@ -360,6 +362,10 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 		await deps.cloudflare.setWorker(name, body.subscribed);
 		return noContent();
 	});
+
+	// ── ROMP updates ──
+	router.on("GET", "/api/update", async () => json(await deps.updates.status()));
+	router.on("POST", "/api/update", async () => json(await deps.updates.request()));
 
 	// ── Terminals ──
 	router.on("GET", "/api/terms", () => json(terms.list()));

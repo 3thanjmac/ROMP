@@ -18,7 +18,9 @@ import { Roots } from "./paths.ts";
 import { PushService } from "./push.ts";
 import { LanSessions } from "./sessions.ts";
 import { ShellStateStore } from "./shellstate.ts";
+import { claimStateDir } from "./statelock.ts";
 import { TerminalManager } from "./terminals.ts";
+import { Updates } from "./updates.ts";
 import { errorMessage } from "./util.ts";
 import type { WsData } from "./ws.ts";
 
@@ -36,6 +38,7 @@ async function main(): Promise<void> {
 	const home = realpathSync(homedir());
 	const roots = new Roots(cfg.roots, home);
 	const romp = rompEnv();
+	const releaseStateDir = claimStateDir(cfg.stateDir);
 	const push = new PushService(cfg.stateDir);
 	await push.load();
 	const user = userInfo().username;
@@ -45,7 +48,10 @@ async function main(): Promise<void> {
 		omp: cfg.omp,
 		ompFound: cfg.ompFound,
 		stateDir: cfg.stateDir,
-		busyFile: process.env.XDG_RUNTIME_DIR ? join(process.env.XDG_RUNTIME_DIR, "romp-gateway.busy") : null,
+		// One per gateway: a second gateway of the same user (a test one) must not clear this one's marker.
+		busyFile: process.env.XDG_RUNTIME_DIR
+			? join(process.env.XDG_RUNTIME_DIR, `romp-gateway-${cfg.listen.port}.busy`)
+			: null,
 		taskOf: (cwd) => taskForPath(romp, cwd),
 		notify: (agent, notice) =>
 			push.notify({
@@ -85,6 +91,7 @@ async function main(): Promise<void> {
 		romp,
 		titles: ompTitleGenerator(cfg.omp),
 		repoSearch: new RepoSearch(),
+		updates: new Updates(user),
 	});
 
 	const server = Bun.serve<WsData>({
@@ -115,6 +122,7 @@ async function main(): Promise<void> {
 		await sessions.flush();
 		await push.flush();
 		await server.stop(true);
+		releaseStateDir();
 		process.exit(0);
 	};
 	process.on("SIGTERM", () => void shutdown("SIGTERM"));

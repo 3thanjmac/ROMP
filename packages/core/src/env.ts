@@ -1,5 +1,7 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { RompError } from "./errors.ts";
 
 export interface RompEnv {
 	/** Shared tree: hub repos, settings, queue, status. `$ROMP_ROOT` or `/srv/romp`. */
@@ -11,15 +13,35 @@ export interface RompEnv {
 	workRoot: string;
 }
 
+/** The shared tree people's gateways and the merge queue use, and the checkout install.sh runs ROMP from. */
+const LIVE_ROOT = "/srv/romp";
+const INSTALLED_SRC = "/opt/romp";
+
 export function rompEnv(overrides: Partial<RompEnv> = {}): RompEnv {
 	const user = overrides.user ?? os.userInfo().username;
 	const home = overrides.home ?? os.homedir();
+	const root = overrides.root ?? (process.env.ROMP_ROOT || LIVE_ROOT);
+	assertMayUseRoot(root, fs.realpathSync(import.meta.dir));
 	return {
-		root: overrides.root ?? (process.env.ROMP_ROOT || "/srv/romp"),
+		root,
 		user,
 		home,
 		workRoot: overrides.workRoot ?? (process.env.ROMP_WORK || path.join(home, "romp")),
 	};
+}
+
+/**
+ * Only the installed ROMP may touch the live root. A development copy (a task worktree, a test gateway) run with the
+ * inherited `ROMP_ROOT` would otherwise act on everyone's real repos and merge queue. `ROMP_ALLOW_LIVE=1` overrides.
+ */
+export function assertMayUseRoot(root: string, codeDir: string): void {
+	if (path.posix.resolve(root) !== LIVE_ROOT || codeDir.startsWith(`${INSTALLED_SRC}/`)) return;
+	if (process.env.ROMP_ALLOW_LIVE === "1") return;
+	throw new RompError(
+		"forbidden",
+		`this copy of ROMP runs from ${codeDir}, not ${INSTALLED_SRC}, so it may not use the live root ${LIVE_ROOT}. ` +
+		"Point ROMP_ROOT and ROMP_WORK at scratch directories, or set ROMP_ALLOW_LIVE=1 to use it on purpose.",
+	);
 }
 
 export type QueueState = "incoming" | "processing" | "done" | "failed";

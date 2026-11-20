@@ -2,6 +2,9 @@
 Description=Pull and apply ROMP updates
 After=network-online.target
 Wants=network-online.target
+# The Update button starts it through romp-update.path; a few quick presses must not trip the start limit, which
+# would leave the path unit failed and the button doing nothing.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot

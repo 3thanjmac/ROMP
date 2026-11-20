@@ -1,7 +1,16 @@
+<script lang="ts" module>
+	/**
+	 * The installed commit the first update status reported while this page's JavaScript was running: the closest the
+	 * page gets to knowing which build it is. A different installed commit later means it is stale.
+	 */
+	let loadedSha: string | null | undefined;
+</script>
+
 <script lang="ts">
-	import type { CloudflareStatus, CloudflareWorker, GitIdentity } from "@romp/protocol";
+	import type { CloudflareStatus, CloudflareWorker, GitIdentity, UpdateStatus } from "@romp/protocol";
 	import { onMount } from "svelte";
 	import { api, errorMessage } from "../api";
+	import { relativeTime } from "../format";
 	import { Icons } from "../icons";
 	import { disablePush, enablePush, push, testPush } from "../push.svelte";
 	import AsyncButton from "../ui/AsyncButton.svelte";
@@ -62,9 +71,12 @@
 	onMount(() => {
 		void load();
 		void loadCloudflare();
+		void loadUpdate();
 		const opener = document.activeElement;
 		heading.focus();
 		return () => {
+			updateSeq++;
+			clearTimeout(updateTimer);
 			// Hand focus back to whatever opened the page, unless closing it already moved focus (a setup terminal).
 			requestAnimationFrame(() => {
 				if (opener instanceof HTMLElement && opener.isConnected && document.activeElement === document.body) opener.focus();
@@ -133,6 +145,67 @@
 			pushError = errorMessage(err);
 		} finally {
 			pushBusy = null;
+		}
+	}
+
+	const UPDATE_POLL_MS = 2_000;
+	const UPDATE_TONE = { current: "neutral", updated: "info", waiting: "warning", paused: "warning", failed: "danger" } as const;
+	/** romp-update as the gateway reports it; null while loading or after a failed load. */
+	let update: UpdateStatus | null = $state(null);
+	let updateLoadError: string | null = $state(null);
+	let updateRunError: string | null = $state(null);
+	/** A status poll failed mid-update: the gateways are restarting. */
+	let updateReconnecting = $state(false);
+	let updateSeq = 0;
+	let updateTimer: ReturnType<typeof setTimeout> | undefined;
+	const reloadNeeded = $derived.by(
+		() => !!update?.installed && !update.running && loadedSha !== undefined && update.installed.sha !== loadedSha,
+	);
+
+	const age = (ms: number) => (relativeTime(ms) === "now" ? "just now" : `${relativeTime(ms)} ago`);
+
+	function showUpdate(next: UpdateStatus) {
+		if (loadedSha === undefined) loadedSha = next.installed?.sha ?? null;
+		update = next;
+		updateReconnecting = false;
+		clearTimeout(updateTimer);
+		if (next.available && next.running) updateTimer = setTimeout(pollUpdate, UPDATE_POLL_MS);
+	}
+
+	async function loadUpdate() {
+		const mine = ++updateSeq;
+		clearTimeout(updateTimer);
+		updateLoadError = null;
+		try {
+			const next = await api.update.status();
+			if (mine === updateSeq) showUpdate(next);
+		} catch (err) {
+			if (mine === updateSeq) updateLoadError = errorMessage(err);
+		}
+	}
+
+	async function pollUpdate() {
+		const mine = ++updateSeq;
+		try {
+			const next = await api.update.status();
+			if (mine === updateSeq) showUpdate(next);
+		} catch {
+			// Installing restarts every gateway, this one included; keep asking until it answers again.
+			if (mine !== updateSeq) return;
+			updateReconnecting = true;
+			updateTimer = setTimeout(pollUpdate, UPDATE_POLL_MS);
+		}
+	}
+
+	async function runUpdate() {
+		const mine = ++updateSeq;
+		clearTimeout(updateTimer);
+		updateRunError = null;
+		try {
+			const next = await api.update.run();
+			if (mine === updateSeq) showUpdate(next);
+		} catch (err) {
+			if (mine === updateSeq) updateRunError = errorMessage(err);
 		}
 	}
 
@@ -540,6 +613,74 @@
 				{/each}
 			</div>
 		</section>
+		{#if update?.available !== false}
+			<section aria-labelledby="settings-updates">
+				<h2 id="settings-updates">Updates</h2>
+				<p class="note">Check GitHub for new ROMP commits and install them now.</p>
+				<p class="note">
+					Installing waits for running agent turns to finish, then restarts everyone's ROMP, which closes open terminals.
+					This page reconnects by itself.
+				</p>
+				{#if updateLoadError}
+					<div class="error-row">
+						<p class="field-error" role="alert">Couldn't load the update status. {updateLoadError}</p>
+						<AsyncButton size="sm" variant="secondary" action={loadUpdate} pendingLabel="Loading…">Retry</AsyncButton>
+					</div>
+				{:else if !update}
+					<div class="skeleton input-skeleton" aria-busy="true" aria-label="Loading update status"></div>
+				{:else}
+					<div class="rows">
+						<div class="row">
+							<div class="head">
+								<h3>Installed version</h3>
+								{#if update.installed}<code>{update.installed.sha.slice(0, 7)}</code>{/if}
+							</div>
+							{#if update.installed}
+								{#if update.installed.subject}<p>{update.installed.subject}</p>{/if}
+								{#if update.installed.at}<p class="meta">Committed {age(update.installed.at)}</p>{/if}
+							{:else}
+								<p class="note">No install has been recorded yet.</p>
+							{/if}
+						</div>
+					</div>
+					<div aria-live="polite" aria-atomic="true">
+						{#if update.last}
+							<Banner
+								tone={UPDATE_TONE[update.last.state]}
+								icon={update.last.state === "current" || update.last.state === "updated" ? undefined : Icons.Warn}
+								text={`${update.last.message} Checked ${age(update.last.at)}.`}
+							/>
+						{:else}
+							<p class="meta">No update check has run yet.</p>
+						{/if}
+					</div>
+					{#if reloadNeeded && update.installed}
+						<div class="head">
+							<p>ROMP {update.installed.sha.slice(0, 7)} is installed. Reload to use it.</p>
+							<Button size="sm" onclick={() => window.location.reload()}>Reload</Button>
+						</div>
+					{:else if update.running}
+						{#if updateReconnecting}
+							<Banner tone="info" text="ROMP is restarting. This page keeps checking and reconnects by itself." />
+						{/if}
+						<div class="actions">
+							<AsyncButton size="sm" pending pendingLabel={updateReconnecting ? "Reconnecting…" : "Updating…"}>
+								Update now
+							</AsyncButton>
+						</div>
+					{:else if updateRunError}
+						<div class="error-row">
+							<p class="field-error" role="alert">Couldn't start the update. {updateRunError}</p>
+							<AsyncButton size="sm" variant="secondary" action={runUpdate} pendingLabel="Starting…">Retry</AsyncButton>
+						</div>
+					{:else}
+						<div class="actions">
+							<AsyncButton size="sm" action={runUpdate} pendingLabel="Starting…">Update now</AsyncButton>
+						</div>
+					{/if}
+				{/if}
+			</section>
+		{/if}
 	</div>
 </section>
 

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run romp-update when someone presses Update in ROMP's settings
+
+[Path]
+# The gateway writes a file here; romp-update empties the directory when it starts.
+DirectoryNotEmpty=/var/lib/romp-update/requests
+Unit=romp-update.service
+
+[Install]
+WantedBy=paths.target

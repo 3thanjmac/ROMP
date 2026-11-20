@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# ROMP system install for Debian 13. Run as root from the repo checkout at /opt/romp:
+# ROMP system install for Debian 13. Run as root from the repo checkout at /opt/romp, from SSH or the console:
 #   sudo /opt/romp/deploy/install.sh
-# Idempotent: re-run after pulling a new version to rebuild and restart services.
+# Idempotent. Updates run it through `sudo romp-update` (or the timer, or the Update button in ROMP's settings).
 set -euo pipefail
 
 ROMP_SRC="${ROMP_SRC:-/opt/romp}"
@@ -10,6 +10,20 @@ MERGIRAF_VERSION="${MERGIRAF_VERSION:-0.20.0}"
 
 [[ $EUID -eq 0 ]] || { echo "install.sh must run as root" >&2; exit 1; }
 [[ -f "$ROMP_SRC/pnpm-workspace.yaml" ]] || { echo "ROMP checkout not found at $ROMP_SRC (set ROMP_SRC)" >&2; exit 1; }
+
+# install.sh restarts every ROMP gateway. Run from a ROMP terminal, that restart would end the terminal and stop the
+# install halfway, so it refuses. romp-update runs it in its own service instead.
+pid=$$
+while ((pid > 1)); do
+	if grep -q '/romp-gateway[^/]*\.service$' "/proc/$pid/cgroup" 2>/dev/null; then
+		echo "install.sh can't run from a ROMP terminal: restarting the gateways would stop it halfway." >&2
+		echo "Use sudo romp-update, or run install.sh from SSH." >&2
+		exit 1
+	fi
+	stat="$(<"/proc/$pid/stat")" || break
+	stat="${stat##*) }"
+	read -r _ pid _ <<<"$stat"
+done
 
 step() { printf '\n==> %s\n' "$*"; }
 
@@ -76,8 +90,9 @@ step "OMP for the merge queue's conflict-resolver agent"
 sudo -iu romp bash -lc 'command -v omp >/dev/null || [ -x ~/.bun/bin/omp ] || curl -fsSL https://omp.sh/install | sh'
 
 step "Build ROMP"
-chgrp -R romp "$ROMP_SRC"
-chmod -R g+rX "$ROMP_SRC"
+# Root owns the checkout: people and their agents can read it but not change it, so it only moves through romp-update.
+chown -R root:romp "$ROMP_SRC"
+chmod -R g+rX,go-w "$ROMP_SRC"
 (cd "$ROMP_SRC" && pnpm install --frozen-lockfile && pnpm build)
 
 step "Commands on PATH"
@@ -93,13 +108,17 @@ install -m 0644 "$ROMP_SRC/deploy/profile.d/romp-setup.sh" /etc/profile.d/romp-s
 step "ROMP root at $ROMP_ROOT"
 ROMP_ROOT="$ROMP_ROOT" romp init
 
-step "Merge queue service and update timer"
+step "Merge queue service and updates"
 install -m 0644 "$ROMP_SRC/deploy/systemd/romp-queue.service" /etc/systemd/system/romp-queue.service
 # Automatic updates are opt-in: sudo systemctl enable --now romp-update.timer. install.sh never changes that choice.
 install -m 0644 "$ROMP_SRC/deploy/systemd/romp-update.service" /etc/systemd/system/romp-update.service
 install -m 0644 "$ROMP_SRC/deploy/systemd/romp-update.timer" /etc/systemd/system/romp-update.timer
+# The Update button in ROMP's settings: members of the romp group drop a file in requests/, which starts the service.
+install -m 0644 "$ROMP_SRC/deploy/systemd/romp-update.path" /etc/systemd/system/romp-update.path
+install -d -m 0755 /var/lib/romp-update
+install -d -m 2770 -o root -g romp /var/lib/romp-update/requests
 systemctl daemon-reload
-systemctl enable --now romp-queue.service
+systemctl enable --now romp-queue.service romp-update.path
 systemctl restart romp-queue.service
 
 step "Shared OMP settings ($ROMP_SRC/deploy/omp-defaults)"
@@ -126,9 +145,15 @@ if [[ -f /etc/romp/lan.env ]]; then
 	romp-lan sync || echo "romp-lan sync failed; LAN access may be stale" >&2
 fi
 
-# romp-update compares this with the newest commit to decide whether there is anything to apply.
-install -d -m 0755 /var/lib/romp-update
-git -c safe.directory="$ROMP_SRC" -C "$ROMP_SRC" rev-parse HEAD >/var/lib/romp-update/applied 2>/dev/null || true
+# romp-update compares this with the newest commit to decide whether there is anything to apply. Installing a commit
+# older than the last one is a rollback, and romp-update leaves /opt/romp there until `sudo romp-update resume`.
+head="$(git -C "$ROMP_SRC" rev-parse HEAD 2>/dev/null || true)"
+previous="$(cat /var/lib/romp-update/applied 2>/dev/null || true)"
+if [[ -n $head && -n $previous && $head != "$previous" ]] && git -C "$ROMP_SRC" merge-base --is-ancestor "$head" "$previous" 2>/dev/null; then
+	echo "$head" >/var/lib/romp-update/hold
+	echo "Rolled back from ${previous:0:7}: updates are paused until sudo romp-update resume."
+fi
+if [[ -n $head ]]; then echo "$head" >/var/lib/romp-update/applied; fi
 
 cat <<EOF
 

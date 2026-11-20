@@ -11,10 +11,13 @@ dest=/opt/romp-dev
 # The Linux pnpm must come first: Windows pnpm leaks in through PATH interop and breaks installs.
 export PATH=/usr/local/share/pnpm/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
+# Its own shared tree and worktrees: ROMP refuses /srv/romp when it runs from anywhere but /opt/romp.
+export ROMP_ROOT=$HOME/.local/share/romp-dev ROMP_WORK=$HOME/romp-dev
 
 mkdir -p "$dest"
 rsync -rlt -O --delete --exclude node_modules --exclude dist --exclude .vite --exclude .shots "$src/" "$dest/"
 (cd "$dest" && pnpm install --frozen-lockfile >/tmp/romp-dev-install.log 2>&1) || { tail -20 /tmp/romp-dev-install.log; exit 1; }
+bun "$dest/packages/core/src/cli.ts" init >/dev/null
 
 mkdir -p ~/.config/romp
 cat >~/.config/romp/gateway-dev.toml <<EOF
@@ -27,7 +30,7 @@ systemctl --user stop romp-gateway-dev 2>/dev/null || true
 systemctl --user reset-failed romp-gateway-dev 2>/dev/null || true
 systemd-run --user --unit=romp-gateway-dev --collect \
 	--working-directory="$dest/packages/gateway" \
-	--setenv=PATH="$PATH" \
+	--setenv=PATH="$PATH" --setenv=ROMP_ROOT="$ROMP_ROOT" --setenv=ROMP_WORK="$ROMP_WORK" \
 	bun src/main.ts --config "$HOME/.config/romp/gateway-dev.toml"
 sleep 2
 curl -fsS http://127.0.0.1:7681/api/me && echo
