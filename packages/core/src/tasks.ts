@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { RepoCommandName, TaskInfo, TaskSetup, TaskStatus } from "@romp/protocol";
@@ -121,14 +122,11 @@ export function taskForPath(env: RompEnv, absPath: string): { repo: string; slug
 	return null;
 }
 
-export function slugify(title: string): string {
-	return title
-		.toLowerCase()
-		.normalize("NFKD")
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "")
-		.slice(0, 40)
-		.replace(/-+$/, "");
+/** A worktree name for a task created without one: `task-` and four random lowercase letters. */
+function randomSlug(): string {
+	let letters = "";
+	for (let i = 0; i < 4; i++) letters += String.fromCharCode(97 + randomInt(26));
+	return `task-${letters}`;
 }
 
 /**
@@ -173,14 +171,9 @@ export async function createTask(
 	return withRepoLock(env, repo, async () => {
 		const settings = await ensureClone(env, repo);
 		const taken = (slug: string) => readMeta(env, repo, slug) !== null || fs.existsSync(worktreeDir(env, repo, slug));
-		let slug = input.slug ?? (slugify(title) || "task");
-		if (taken(slug)) {
-			if (input.slug !== undefined) throw new RompError("conflict", `Task ${repo}/${slug} already exists`);
-			const base = slug.slice(0, 36);
-			let n = 2;
-			while (taken(`${base}-${n}`)) n++;
-			slug = `${base}-${n}`;
-		}
+		let slug = input.slug ?? randomSlug();
+		if (input.slug !== undefined && taken(slug)) throw new RompError("conflict", `Task ${repo}/${slug} already exists`);
+		while (taken(slug)) slug = randomSlug();
 		const clone = cloneDir(env, repo);
 		const branch = taskBranch(env, slug);
 		if (await revParse(env, clone, `refs/heads/${branch}`))

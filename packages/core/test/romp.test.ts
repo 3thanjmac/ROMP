@@ -95,13 +95,14 @@ describe("romp", () => {
 	});
 
 	test("tasks: create, list, taskForPath", async () => {
-		const a = await createTask(ethan, { repo: "demo", title: "Edit the top" });
+		const a = await createTask(ethan, { repo: "demo", title: "Edit the top", slug: "edit-the-top" });
 		expect(a).toMatchObject({ slug: "edit-the-top", branch: "agent/ethan/edit-the-top", status: "active", dirty: false });
 		const b = await createTask(alice, { repo: "demo", title: "Edit the bottom", slug: "bottom" });
 		expect(b.path).toBe(path.join(alice.workRoot, "demo", "bottom"));
-		const dup = await createTask(ethan, { repo: "demo", title: "Edit the top" });
-		expect(dup.slug).toBe("edit-the-top-2");
-		await removeTask(ethan, "demo", dup.slug);
+		const auto = await createTask(ethan, { repo: "demo", title: "Edit the top" });
+		expect(auto.slug).toMatch(/^task-[a-z]{4}$/);
+		expect(auto.branch).toBe(`agent/ethan/${auto.slug}`);
+		await removeTask(ethan, "demo", auto.slug);
 		expect(taskForPath(ethan, path.join(a.path, "sub", "file"))).toEqual({ repo: "demo", slug: "edit-the-top" });
 		expect(taskForPath(ethan, ethan.workRoot)).toBeNull();
 		expect((await listTasks(ethan)).map((t) => t.slug)).toEqual(["edit-the-top"]);
@@ -287,7 +288,7 @@ describe("romp", () => {
 	test("renameTask changes the title and keeps the slug", async () => {
 		const t = await createTask(ethan, { repo: "solo", title: "Old name" });
 		await renameTask(ethan, "solo", t.slug, "  New name ");
-		expect(await getTask(ethan, "solo", t.slug)).toMatchObject({ slug: "old-name", title: "New name" });
+		expect(await getTask(ethan, "solo", t.slug)).toMatchObject({ slug: t.slug, title: "New name" });
 		await expect(renameTask(ethan, "solo", t.slug, " ")).rejects.toMatchObject({ code: "bad_request" });
 	});
 
