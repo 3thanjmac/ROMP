@@ -47,6 +47,8 @@ export interface TaskMeta {
 	createdAt: number;
 	/** Task HEAD when it was last shipped; lets `landed`/`failed` give way to `active` on new work. */
 	shippedHead: string | null;
+	/** Task HEAD behind the last landing that reached the hub; commits up to it are no longer ahead. */
+	landedHead?: string;
 }
 
 const metaFile = (env: RompEnv, repo: string, slug: string) => path.join(taskMetaDir(env, repo), `${slug}.json`);
@@ -222,9 +224,15 @@ export async function taskInfo(env: RompEnv, repo: string, slug: string, setting
 	const dirty = porcelain.length > 0;
 	const merging = await mergeInProgress(env, wt);
 	const conflictFiles = merging ? filesWithMarkers(wt, await unmergedFiles(env, wt)) : [];
-	const counts = await git(env, wt, ["rev-list", "--left-right", "--count", `${hubRef}...HEAD`], { allowFail: true });
-	const [behind = 0, ahead = 0] = counts.code === 0 ? counts.stdout.trim().split(/\s+/).map(Number) : [];
-	// Commits stay "ahead" after a squash landing; only count them while there is a net diff.
+	const counts = await git(env, wt, ["rev-list", "--count", `HEAD..${hubRef}`], { allowFail: true });
+	const behind = counts.code === 0 ? Number(counts.stdout.trim()) : 0;
+	// Squash landings never put the task's own commits on the hub branch, so exclude everything up to
+	// the last landed head; sync and landing-record merges are bookkeeping, not changes.
+	const landedHead = landing?.state === "landed" ? meta.shippedHead : meta.landedHead;
+	const ownArgs = ["rev-list", "--count", "--no-merges", "HEAD", `^${hubRef}`, ...(landedHead ? [`^${landedHead}`] : [])];
+	const own = await git(env, wt, ownArgs, { allowFail: true });
+	const ahead = own.code === 0 ? Number(own.stdout.trim()) : 0;
+	// A change can also reach the hub without this task landing it; nothing is ahead without a net diff.
 	const sameTree = (await git(env, wt, ["diff", "--quiet", hubRef, "HEAD"], { allowFail: true })).code === 0;
 	const head = await revParse(env, wt, "HEAD");
 	let status: TaskStatus = "active";

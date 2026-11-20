@@ -93,9 +93,15 @@ async function checkpointLocked(env: RompEnv, repo: string, slug: string, settin
 		);
 	};
 
+	const landed = readLanding(env, repo, env.user, slug);
+	if (landed?.state === "landed") {
+		// Keep the landed head once a later ship overwrites `shippedHead`, so its commits stay out of `ahead`.
+		const meta = requireMeta(env, repo, slug);
+		if (meta.shippedHead && meta.landedHead !== meta.shippedHead) writeMeta(env, repo, slug, { ...meta, landedHead: meta.shippedHead });
+	}
+
 	// A landed squash carries this task's own changes; record it as merged (after merging what it
 	// was built on) so later syncs do not replay the task's work against itself as conflicts.
-	const landed = readLanding(env, repo, env.user, slug);
 	const landedCommit = landed?.state === "landed" ? landed.commit : null;
 	if (
 		landedCommit &&
@@ -192,7 +198,7 @@ export async function shipTask(env: RompEnv, repo: string, slug: string, opts: {
 			writeLanding(env, repo, env.user, slug, { state: "failed", message: `Ship failed: ${(err as Error).message}` });
 			throw err;
 		}
-		writeMeta(env, repo, slug, { ...meta, shippedHead: saved.head });
+		writeMeta(env, repo, slug, { ...requireMeta(env, repo, slug), shippedHead: saved.head });
 		return taskInfo(env, repo, slug, settings);
 	});
 }

@@ -141,7 +141,8 @@ describe("romp", () => {
 		const saved = await checkpoint(ethan, "demo", "edit-the-top");
 		expect(saved.status).toBe("saved");
 		expect(sh(wt, "git", "log", "-3", "--format=%s")).toContain("romp: record landing of");
-		expect((await getTask(ethan, "demo", "edit-the-top")).status).toBe("active");
+		// Only the new commit is ahead: not the landed one, nor the landing-record merge.
+		expect(await getTask(ethan, "demo", "edit-the-top")).toMatchObject({ status: "active", ahead: 1 });
 		await shipTask(ethan, "demo", "edit-the-top", { message: "Mark line 2 again" });
 		await runOnce(queue);
 		expect((await getTask(ethan, "demo", "edit-the-top")).status).toBe("landed");
