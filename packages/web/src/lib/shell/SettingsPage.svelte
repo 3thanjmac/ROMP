@@ -1,10 +1,11 @@
 <script lang="ts">
-	import type { GitIdentity } from "@romp/protocol";
+	import type { CloudflareStatus, CloudflareWorker, GitIdentity } from "@romp/protocol";
 	import { onMount } from "svelte";
 	import { api, errorMessage } from "../api";
 	import { Icons } from "../icons";
 	import { disablePush, enablePush, push, testPush } from "../push.svelte";
 	import AsyncButton from "../ui/AsyncButton.svelte";
+	import Banner from "../ui/Banner.svelte";
 	import Button from "../ui/Button.svelte";
 	import IconButton from "../ui/IconButton.svelte";
 	import { shell } from "./shell.svelte";
@@ -60,6 +61,7 @@
 
 	onMount(() => {
 		void load();
+		void loadCloudflare();
 		const opener = document.activeElement;
 		heading.focus();
 		return () => {
@@ -131,6 +133,108 @@
 			pushError = errorMessage(err);
 		} finally {
 			pushBusy = null;
+		}
+	}
+
+	/**
+	 * Prefills a user token with Queues Edit and Workers Scripts Read. Workers CI (Builds Configuration) Read has no
+	 * short key a user-token link accepts, so the copy asks for it.
+	 */
+	const TOKEN_URL = `https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=${encodeURIComponent(
+		JSON.stringify([
+			{ key: "queues", type: "edit" },
+			{ key: "workers_scripts", type: "read" },
+		]),
+	)}&accountId=*&zoneId=all&name=${encodeURIComponent("ROMP builds")}`;
+
+	/** null while loading or after a failed load. */
+	let cf: CloudflareStatus | null = $state(null);
+	let cfLoadError: string | null = $state(null);
+	let token = $state("");
+	let connectError: string | null = $state(null);
+	let disconnectError: string | null = $state(null);
+	let cfBusy: "connect" | "disconnect" | null = $state(null);
+	let cfMessage: string | null = $state(null);
+	/** null while loading or after a failed load. */
+	let workers: CloudflareWorker[] | null = $state(null);
+	let workersError: string | null = $state(null);
+	let workerPending: Record<string, boolean> = $state({});
+	let workerErrors: Record<string, string> = $state({});
+	/** Bumped per status or Workers load so a late response never overwrites a newer one. */
+	let cfSeq = 0;
+
+	async function loadCloudflare() {
+		const mine = ++cfSeq;
+		cf = cfLoadError = null;
+		try {
+			const status = await api.cloudflare.status();
+			if (mine !== cfSeq) return;
+			cf = status;
+			if (status.connected) await loadWorkers();
+		} catch (err) {
+			if (mine === cfSeq) cfLoadError = errorMessage(err);
+		}
+	}
+
+	async function loadWorkers() {
+		const mine = ++cfSeq;
+		workers = workersError = null;
+		try {
+			const list = await api.cloudflare.workers();
+			if (mine === cfSeq) workers = list;
+		} catch (err) {
+			if (mine === cfSeq) workersError = errorMessage(err);
+		}
+	}
+
+	async function connect(e: SubmitEvent) {
+		e.preventDefault();
+		if (cfBusy) return;
+		cfBusy = "connect";
+		connectError = cfMessage = null;
+		try {
+			cf = await api.cloudflare.connect(token);
+			token = "";
+			cfMessage = "Connected. Choose which Workers send build notifications.";
+			void loadWorkers();
+		} catch (err) {
+			connectError = errorMessage(err);
+		} finally {
+			cfBusy = null;
+		}
+	}
+
+	async function disconnect() {
+		if (cfBusy) return;
+		cfBusy = "disconnect";
+		disconnectError = cfMessage = null;
+		try {
+			const { leftover } = await api.cloudflare.disconnect();
+			cfSeq++;
+			cf = { connected: false };
+			workers = null;
+			workerErrors = {};
+			cfMessage = leftover ?? "Disconnected. ROMP removed its queue and subscriptions from Cloudflare.";
+		} catch (err) {
+			disconnectError = errorMessage(err);
+		} finally {
+			cfBusy = null;
+		}
+	}
+
+	/** Optimistic: the box changes at once and flips back with the reason if Cloudflare refuses. */
+	async function toggleWorker(worker: CloudflareWorker, subscribed: boolean) {
+		const { name } = worker;
+		worker.subscribed = subscribed;
+		workerPending[name] = true;
+		delete workerErrors[name];
+		try {
+			await api.cloudflare.setWorker(name, subscribed);
+		} catch (err) {
+			worker.subscribed = !subscribed;
+			workerErrors[name] = errorMessage(err);
+		} finally {
+			delete workerPending[name];
 		}
 	}
 
@@ -222,8 +326,8 @@
 		<section aria-labelledby="settings-notifications">
 			<h2 id="settings-notifications">Notifications</h2>
 			<p class="note">
-				Get a banner when an agent asks a question, needs approval, finishes, or stops unexpectedly. ROMP stays quiet
-				while it is open and focused on this device.
+				Get a banner when an agent asks a question, needs approval, finishes, or stops unexpectedly. Agent notices stay
+				quiet while ROMP is open and focused on this device.
 			</p>
 			{#if push.support === "unsupported"}
 				<p>This browser or connection can't use push notifications. Open ROMP over HTTPS in a supported browser.</p>
@@ -294,6 +398,132 @@
 				</p>
 			{/if}
 		</section>
+		<section aria-labelledby="settings-cloudflare-builds">
+			<h2 id="settings-cloudflare-builds">Cloudflare builds</h2>
+			<p class="note">
+				Get a notification when a Workers Builds build succeeds, fails, or is canceled. These arrive even while ROMP is
+				open, and tapping one opens the build in Cloudflare.
+			</p>
+			{#if push.support !== "ok" || (push.ready && (!push.subscribed || push.permission === "denied"))}
+				<p class="note">
+					This device isn't getting notifications, so build results only reach your other devices. See Notifications
+					above.
+				</p>
+			{/if}
+			{#if cfLoadError}
+				<div class="error-row">
+					<p class="field-error" role="alert">Couldn't load Cloudflare builds. {cfLoadError}</p>
+					<AsyncButton size="sm" variant="secondary" action={loadCloudflare} pendingLabel="Loading…">Retry</AsyncButton>
+				</div>
+			{:else if !cf}
+				<div class="skeleton input-skeleton" aria-busy="true" aria-label="Loading Cloudflare builds"></div>
+			{:else if !cf.connected}
+				<p class="note">
+					<a href={TOKEN_URL} target="_blank" rel="noopener noreferrer">Create a Cloudflare API token</a>
+					under My Profile. The link fills in Queues · Edit and Workers Scripts · Read; also add Workers Builds
+					Configuration · Read, and limit it to the account your Workers are in.
+				</p>
+				<form class="token-form" onsubmit={connect}>
+					<label>
+						API token
+						<input
+							bind:value={token}
+							type="password"
+							required
+							autocomplete="off"
+							autocapitalize="off"
+							spellcheck="false"
+							aria-invalid={!!connectError}
+							oninput={() => (connectError = null)}
+						/>
+						{#if connectError}<span class="field-error" role="alert">{connectError}</span>{/if}
+					</label>
+					<div class="actions">
+						<AsyncButton type="submit" size="sm" pending={cfBusy === "connect"} pendingLabel="Connecting…">
+							Connect
+						</AsyncButton>
+					</div>
+				</form>
+				{#if cfMessage}<p class="meta" role="status" aria-live="polite">{cfMessage}</p>{/if}
+			{:else}
+				<div class="head">
+					<h3>{cf.accountName}</h3>
+					<AsyncButton
+						size="sm"
+						variant="ghost"
+						action={disconnect}
+						pending={cfBusy === "disconnect"}
+						pendingLabel="Disconnecting…"
+						disabled={cfBusy !== null}
+					>
+						Disconnect
+					</AsyncButton>
+				</div>
+				<p class="note">
+					Builds reach ROMP through the queue {cf.queueName}. Disconnecting deletes it and the subscriptions below.
+				</p>
+				{#if cf.pollError}
+					<Banner
+						tone="warning"
+						icon={Icons.Warn}
+						text="Couldn't read build events: {cf.pollError}. If the token was revoked or expired, disconnect and connect with a new one."
+					/>
+				{/if}
+				{#if disconnectError}
+					<div class="error-row">
+						<p class="field-error" role="alert">Couldn't disconnect. {disconnectError}</p>
+						<AsyncButton size="sm" variant="secondary" action={disconnect} pendingLabel="Disconnecting…">Retry</AsyncButton>
+					</div>
+				{:else if cfMessage}
+					<p class="meta" role="status" aria-live="polite">{cfMessage}</p>
+				{/if}
+				{#if workersError}
+					<div class="error-row">
+						<p class="field-error" role="alert">Couldn't load your Workers. {workersError}</p>
+						<AsyncButton size="sm" variant="secondary" action={loadWorkers} pendingLabel="Loading…">Retry</AsyncButton>
+					</div>
+				{:else if !workers}
+					<div class="rows workers" aria-busy="true" aria-label="Loading Workers">
+						{#each { length: 3 }, i (i)}<div class="skeleton input-skeleton"></div>{/each}
+					</div>
+				{:else if workers.length === 0}
+					<div class="head">
+						<p class="note">This account has no Workers yet.</p>
+						<AsyncButton size="sm" variant="secondary" action={loadWorkers} pendingLabel="Refreshing…">Refresh</AsyncButton>
+					</div>
+				{:else}
+					<ul class="rows workers" aria-label="Workers">
+						{#each workers as worker (worker.name)}
+							<li class="row">
+								<label class="worker">
+									<input
+										type="checkbox"
+										checked={worker.subscribed}
+										disabled={!worker.repository || !!workerPending[worker.name] || cfBusy !== null}
+										onchange={(e) => toggleWorker(worker, e.currentTarget.checked)}
+									/>
+									<span class="name">{worker.name}</span>
+									<span class="detail">
+										{#if workerPending[worker.name]}
+											Saving…
+										{:else if worker.repository}
+											{worker.repository.owner}/{worker.repository.name} · {worker.repository.branch}
+										{:else}
+											No Git repo connected
+										{/if}
+									</span>
+								</label>
+								{#if workerErrors[worker.name]}
+									<p class="field-error" role="alert">
+										Couldn't change {worker.name}. {workerErrors[worker.name]}
+									</p>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			{/if}
+		</section>
 		<section aria-labelledby="settings-account-setup">
 			<h2 id="settings-account-setup">Account setup</h2>
 			<p class="note">Each opens a terminal that runs as your own Linux account.</p>
@@ -348,10 +578,14 @@
 		padding: var(--sp-6) calc(var(--sp-6) + var(--safe-right)) calc(var(--sp-6) + var(--safe-bottom))
 			calc(var(--sp-6) + var(--safe-left));
 	}
-	section:not(.page),
-	.rows {
+	section:not(.page) {
 		display: grid;
 		gap: var(--sp-3);
+	}
+	/* Rows sit further apart than the lines inside one, and closer than sections. */
+	.rows {
+		display: grid;
+		gap: var(--sp-4);
 	}
 	section:not(.page, :last-of-type) {
 		border-bottom: var(--border);
@@ -378,6 +612,10 @@
 	.input-skeleton {
 		min-height: calc(1lh + var(--sp-2) * 2 + 2px);
 	}
+	.token-form {
+		display: grid;
+		gap: var(--sp-3);
+	}
 	.error-row,
 	.head {
 		display: flex;
@@ -399,7 +637,51 @@
 		gap: var(--sp-2);
 		&:not(:last-child) {
 			border-bottom: var(--border);
-			padding-bottom: var(--sp-3);
+			padding-bottom: var(--sp-4);
+		}
+	}
+	.workers {
+		gap: var(--sp-2);
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		.row:not(:last-child) {
+			padding-bottom: var(--sp-2);
+		}
+	}
+	/* Receipt layout: box and name on the left, the repo it builds from on the right. */
+	.worker {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr) auto;
+		align-items: center;
+		gap: var(--sp-2) var(--sp-3);
+		cursor: pointer;
+		/* A row, not a field caption: undo the global label's small muted text. */
+		font-size: inherit;
+		color: var(--fg);
+		&:has(input:disabled) {
+			cursor: not-allowed;
+		}
+		input {
+			margin: 0;
+		}
+		.name {
+			overflow-wrap: anywhere;
+		}
+		.detail {
+			color: var(--fg-muted);
+			font-size: var(--text-sm);
+			text-align: end;
+			overflow-wrap: anywhere;
+		}
+	}
+	@media (pointer: coarse) {
+		.worker {
+			grid-template-columns: auto minmax(0, 1fr);
+			.detail {
+				grid-column: 2;
+				text-align: start;
+			}
 		}
 	}
 	code {

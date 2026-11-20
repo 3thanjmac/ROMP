@@ -8,6 +8,7 @@ import { AgentManager } from "./agents/manager.ts";
 import { ompTitleGenerator } from "./agents/title.ts";
 import { createApp } from "./app.ts";
 import { Auth } from "./auth.ts";
+import { CloudflareBuilds } from "./cloudflare.ts";
 import { ConfigError, loadConfig } from "./config.ts";
 import { DevServerManager } from "./devservers.ts";
 import { Files } from "./files.ts";
@@ -37,6 +38,9 @@ async function main(): Promise<void> {
 	const romp = rompEnv();
 	const push = new PushService(cfg.stateDir);
 	await push.load();
+	const user = userInfo().username;
+	const cloudflare = new CloudflareBuilds(cfg.stateDir, user, (message) => push.notify(message, { evenWhenWatching: true }));
+	await cloudflare.load();
 	const agents = new AgentManager({
 		omp: cfg.omp,
 		ompFound: cfg.ompFound,
@@ -44,7 +48,14 @@ async function main(): Promise<void> {
 		busyFile: process.env.XDG_RUNTIME_DIR ? join(process.env.XDG_RUNTIME_DIR, "romp-gateway.busy") : null,
 		taskOf: (cwd) => taskForPath(romp, cwd),
 		notify: (agent, notice) =>
-			push.notify({ title: agent.title, body: notice.text, tag: `agent-${agent.id}`, agentId: agent.id, cwd: agent.cwd }),
+			push.notify({
+				title: agent.title,
+				body: notice.text,
+				tag: `agent-${agent.id}`,
+				agentId: agent.id,
+				cwd: agent.cwd,
+				url: null,
+			}),
 	});
 	await agents.load();
 	const sessions = new LanSessions(cfg.passwordFile, cfg.stateDir);
@@ -60,7 +71,7 @@ async function main(): Promise<void> {
 		cfg,
 		roots,
 		home,
-		user: userInfo().username,
+		user,
 		host: hostname(),
 		auth: new Auth(cfg, sessions),
 		files: new Files(roots, home),
@@ -70,6 +81,7 @@ async function main(): Promise<void> {
 		shellState: new ShellStateStore(cfg.stateDir),
 		sessions,
 		push,
+		cloudflare,
 		romp,
 		titles: ompTitleGenerator(cfg.omp),
 		repoSearch: new RepoSearch(),
@@ -97,6 +109,7 @@ async function main(): Promise<void> {
 		console.log(`romp-gateway: ${signal}, shutting down`);
 		void server.stop();
 		dev.shutdown();
+		cloudflare.stop();
 		terms.shutdown();
 		await agents.shutdown();
 		await sessions.flush();

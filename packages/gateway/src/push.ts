@@ -105,10 +105,15 @@ export class PushService {
 		else if (this.subscriptions.some((s) => s.endpoint === endpoint)) this.present.set(endpoint, Date.now() + PRESENCE_MS);
 	}
 
-	/** Sends `message` to every subscribed device that is not watching ROMP right now. Never throws. */
-	notify(message: PushMessage): void {
+	/**
+	 * Sends `message` to every subscribed device, skipping those watching ROMP right now unless `evenWhenWatching`
+	 * (build results, which say nothing the open app shows). Never throws.
+	 */
+	notify(message: PushMessage, { evenWhenWatching = false } = {}): void {
 		const now = Date.now();
-		const targets = this.subscriptions.filter((s) => (this.present.get(s.endpoint) ?? 0) <= now);
+		const targets = evenWhenWatching
+			? this.subscriptions
+			: this.subscriptions.filter((s) => (this.present.get(s.endpoint) ?? 0) <= now);
 		for (const target of targets) {
 			void this.send(target, message).then(
 				(error) => error && console.warn(`push to ${new URL(target.endpoint).host}: ${error}`),
@@ -129,6 +134,7 @@ export class PushService {
 				tag: "test",
 				agentId: null,
 				cwd: null,
+				url: null,
 			});
 		} catch (err) {
 			throw new HttpError(502, "push_failed", `Couldn't reach the push service: ${errorMessage(err)}`);

@@ -34,6 +34,7 @@ flowchart LR
 - **Multi-user.** Each person has a Linux account and their own gateway. Everyone shares the hub repos and the merge queue, so two people can run agents on the same repository at once.
 - **Installable** as a phone app (PWA), dark and light themes.
 - **Push notifications** when an agent asks a question, needs approval, finishes, or stops unexpectedly. Turn them on per device in **Settings**; a device that has ROMP open and focused gets none.
+- **Cloudflare build notifications.** Connect a Cloudflare API token in **Settings → Cloudflare builds** and tick Workers: each Workers Builds build that succeeds, fails or is canceled sends a notification, even to a device with ROMP open, and tapping it opens the build. The gateway reads them from a Cloudflare Queue it creates, so nothing has to be reachable from the internet.
 
 ## Repository layout
 
@@ -129,7 +130,7 @@ If `add-user.sh` reports that HTTPS is off for your tailnet, open the link it pr
 | `shell` | `/bin/bash` | Terminal shell |
 | `omp` | `omp` | Path to the omp binary |
 | `web_dir` | `packages/web/dist` | Built web app |
-| `state_dir` | `~/.local/state/romp` | Saved layout, agent sessions, and push notification keys and devices (`push.json`) |
+| `state_dir` | `~/.local/state/romp` | Saved layout, agent sessions, push notification keys and devices (`push.json`), and the Cloudflare builds token and queue (`cloudflare.json`, mode 600) |
 
 The gateway trusts the Tailscale identity headers only on connections from sockets owned by root (tailscaled) or by the gateway's own user, so another local user can't impersonate someone. Connections from `lan_proxy_user` never get Tailscale identity; they need a session cookie from a password sign-in (argon2id hash in `~/.config/romp/password`, sessions in `state_dir/sessions.json`). Agents and terminals can only start in directories inside `roots`.
 

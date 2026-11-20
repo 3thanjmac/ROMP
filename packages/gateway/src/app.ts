@@ -41,6 +41,7 @@ import { parseChoice } from "./agents/models.ts";
 import type { TitleGenerator } from "./agents/title.ts";
 import { deliverCallback } from "./callback.ts";
 import { type Auth, crossOriginError, type Identity } from "./auth.ts";
+import type { CloudflareBuilds } from "./cloudflare.ts";
 import type { GatewayConfig } from "./config.ts";
 import type { DevServerManager } from "./devservers.ts";
 import { type Files, parseFsOp } from "./files.ts";
@@ -100,6 +101,7 @@ export interface AppDeps {
 	shellState: ShellStateStore;
 	sessions: LanSessions;
 	push: PushService;
+	cloudflare: CloudflareBuilds;
 	romp: RompEnv;
 	/** Background titles for tasks created with `autoTitle`. */
 	titles: TitleGenerator;
@@ -342,6 +344,20 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 	});
 	router.on("POST", "/api/push/test", async ({ req }) => {
 		await deps.push.test(parseEndpoint(await readJson(req, SMALL_BODY)));
+		return noContent();
+	});
+
+	// ── Cloudflare builds ──
+	router.on("GET", "/api/cloudflare", () => json(deps.cloudflare.status()));
+	router.on("PUT", "/api/cloudflare", async ({ req }) =>
+		json(await deps.cloudflare.connect(requireString(await readJson(req, SMALL_BODY), "token"))),
+	);
+	router.on("DELETE", "/api/cloudflare", async () => json(await deps.cloudflare.disconnect()));
+	router.on("GET", "/api/cloudflare/workers", async () => json(await deps.cloudflare.workers()));
+	router.on("PUT", "/api/cloudflare/workers/:name", async ({ req }, { name = "" }) => {
+		const body = await readJson(req, SMALL_BODY);
+		if (typeof body.subscribed !== "boolean") throw badRequest(`"subscribed" must be true or false`);
+		await deps.cloudflare.setWorker(name, body.subscribed);
 		return noContent();
 	});
 

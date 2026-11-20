@@ -6,6 +6,11 @@ import type {
 	ApiError,
 	CallbackRequest,
 	CallbackResult,
+	CloudflareConnect,
+	CloudflareDisconnected,
+	CloudflareStatus,
+	CloudflareWorker,
+	CloudflareWorkerUpdate,
 	DevCommand,
 	DevServerInfo,
 	DevServerStart,
@@ -176,6 +181,14 @@ export const api = {
 		unsubscribe: (endpoint: string) =>
 			request<undefined>("DELETE", "/api/push/subscription", { endpoint } satisfies PushEndpoint),
 		test: (endpoint: string) => request<undefined>("POST", "/api/push/test", { endpoint } satisfies PushEndpoint),
+	},
+	cloudflare: {
+		status: () => request<CloudflareStatus>("GET", "/api/cloudflare"),
+		connect: (token: string) => request<CloudflareStatus>("PUT", "/api/cloudflare", { token } satisfies CloudflareConnect),
+		disconnect: () => request<CloudflareDisconnected>("DELETE", "/api/cloudflare"),
+		workers: () => request<CloudflareWorker[]>("GET", "/api/cloudflare/workers"),
+		setWorker: (name: string, subscribed: boolean) =>
+			request<undefined>("PUT", `/api/cloudflare/workers/${q(name)}`, { subscribed } satisfies CloudflareWorkerUpdate),
 	},
 	/** LAN sign-in; the gateway answers with the session cookie. */
 	login: (req: LoginRequest) => request<undefined>("POST", "/api/login", req),

@@ -653,7 +653,7 @@ export interface PushPresence {
 	active: boolean;
 }
 
-/** The decrypted push payload the service worker shows. `tag` groups notifications (one per agent). */
+/** The decrypted push payload the service worker shows. `tag` groups notifications (one per agent or Worker). */
 export interface PushMessage {
 	title: string;
 	body: string;
@@ -661,4 +661,41 @@ export interface PushMessage {
 	/** Agent to open when the notification is tapped. */
 	agentId: string | null;
 	cwd: string | null;
+	/** Page to open instead of ROMP when the notification is tapped (a Cloudflare build). */
+	url: string | null;
+}
+
+// ───────────────────────────── Cloudflare builds ─────────────────────────────
+
+/**
+ * `GET /api/cloudflare`, and the answer to `PUT /api/cloudflare` (body `CloudflareConnect`), which checks the token,
+ * creates the user's queue with an HTTP pull consumer, and starts reading build events from it. `pollError` is the
+ * last failure reading the queue, cleared by the next success.
+ */
+export type CloudflareStatus =
+	| { connected: false }
+	| { connected: true; accountName: string; queueName: string; pollError: string | null };
+
+export interface CloudflareConnect {
+	/** A user API token with Queues Edit, Workers Scripts Read and Workers CI (Builds Configuration) Read. */
+	token: string;
+}
+
+/** `DELETE /api/cloudflare`: forgets the token. `leftover` says what could not be removed from Cloudflare. */
+export interface CloudflareDisconnected {
+	leftover: string | null;
+}
+
+/** `GET /api/cloudflare/workers`: the account's Workers, by name. */
+export interface CloudflareWorker {
+	name: string;
+	/** The Git repo Workers Builds builds it from; null when none is connected, so it never builds. */
+	repository: { owner: string; name: string; branch: string } | null;
+	/** Its build events go to the user's queue. */
+	subscribed: boolean;
+}
+
+/** `PUT /api/cloudflare/workers/:name` body, 204. */
+export interface CloudflareWorkerUpdate {
+	subscribed: boolean;
 }

@@ -1,5 +1,6 @@
-// ROMP service worker: shows agent push notifications (payload: @romp/protocol PushMessage) and routes a tap back
-// to the app. It has no fetch handler on purpose: the app always loads from the gateway, so deploys apply on reload.
+// ROMP service worker: shows push notifications (payload: @romp/protocol PushMessage) and routes a tap back to the
+// agent in the app, or to the message's `url` (a Cloudflare build). It has no fetch handler on purpose: the app always
+// loads from the gateway, so deploys apply on reload.
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
@@ -19,16 +20,24 @@ self.addEventListener("push", (event) => {
 			// A newer notice for the same agent replaces the old one but still alerts.
 			renotify: tag !== undefined,
 			icon: "/icon-192.png",
-			data: { agentId: message.agentId ?? null, cwd: message.cwd ?? null },
+			data: {
+				agentId: message.agentId ?? null,
+				cwd: message.cwd ?? null,
+				url: typeof message.url === "string" ? message.url : null,
+			},
 		}),
 	);
 });
 
 self.addEventListener("notificationclick", (event) => {
 	event.notification.close();
-	const { agentId, cwd } = event.notification.data ?? {};
+	const { agentId, cwd, url } = event.notification.data ?? {};
 	event.waitUntil(
 		(async () => {
+			if (url) {
+				await self.clients.openWindow(url);
+				return;
+			}
 			const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
 			const client = windows.find((c) => new URL(c.url).origin === self.location.origin);
 			if (client) {
