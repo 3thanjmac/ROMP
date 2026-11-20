@@ -154,9 +154,12 @@ export function createApp(deps: AppDeps) {
 			}
 			if (identity !== null) {
 				// A page under /proxy/<port>/ asking for a root-absolute path: send it back under its prefix. ROMP's own
-				// sockets all live under /ws/, so any other upgrade is a proxied page's (Vite HMR sends no Referer).
+				// sockets all live under /ws/, so any other upgrade is a proxied page's (Vite HMR sends no Referer). ROMP
+				// never frames itself either, so any frame navigation is a proxied page's: one whose client-side router
+				// pushed a root-absolute URL carries no /proxy/ Referer, and would otherwise load ROMP inside its own pane.
 				const foreignSocket = isUpgrade && !url.pathname.startsWith("/ws/");
-				const port = refererProxyPort(req) ?? (foreignSocket ? cookieProxyPort(req) : null);
+				const framed = req.headers.get("sec-fetch-dest") === "iframe";
+				const port = refererProxyPort(req) ?? (foreignSocket || framed ? cookieProxyPort(req) : null);
 				if (port !== null && port !== deps.cfg.listen.port) {
 					if (isUpgrade) {
 						return await proxyWebSocket(req, url, prefixedTarget(port, url), loopbackHost(port, listeningSockets()), server);
