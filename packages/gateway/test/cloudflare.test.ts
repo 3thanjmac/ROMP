@@ -206,6 +206,7 @@ test("workers lists repos from Workers Builds and marks the ones routed to this 
 			method: "POST",
 			path: "/accounts/acc1/event_subscriptions/subscriptions",
 			body: {
+				name: `${QUEUE} api`,
 				enabled: true,
 				events: ["build.succeeded", "build.failed", "build.canceled"],
 				source: { type: "workersBuilds.worker", worker_name: "api" },

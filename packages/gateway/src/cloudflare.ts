@@ -190,6 +190,9 @@ export class CloudflareBuilds {
 					"POST",
 					path,
 					{
+						// Documented as optional, but the API answers "Required at name" without it. Wrangler's default
+						// is "<queue> <source>"; the Worker name keeps each one recognizable in the dashboard.
+						name: `${s.queueName} ${name}`,
 						enabled: true,
 						events: EVENTS,
 						source: { type: "workersBuilds.worker", worker_name: name },
