@@ -23,7 +23,6 @@
 <li class="repo" style:--repo={repoColorVar(repo.color)}>
 	<IconButton size="sm" icon={Icons.Settings} label="Settings for {repo.name}" onclick={onsettings} />
 	<button class="open" onclick={onopen}>
-		<span class="swatch" aria-hidden="true"></span>
 		<span class="name truncate">{repo.name}</span>
 		<Chip icon={Icons.Branch}>{repo.branch}</Chip>
 		<span class="remote meta mono truncate">{remoteLabel(repo.remote)}</span>
@@ -67,13 +66,6 @@
 		> :global(.icon) {
 			color: var(--fg-muted);
 		}
-	}
-	.swatch {
-		flex: none;
-		width: var(--icon-xs);
-		height: var(--icon-xs);
-		border-radius: var(--radius-xs);
-		background: var(--repo);
 	}
 	.name {
 		flex: 0 1 auto;

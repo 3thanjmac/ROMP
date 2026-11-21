@@ -32,7 +32,6 @@
 		<IconButton size="sm" icon={Icons.Settings} label="Settings for {repo.name}" onclick={onsettings} />
 	</div>
 	<header class="head">
-		<span class="swatch" aria-hidden="true"></span>
 		<h2 class="truncate">{repo.name}</h2>
 		<Chip icon={Icons.Branch}>{repo.branch}</Chip>
 		<span class="remote meta mono truncate">{remoteLabel(repo.remote)}</span>
@@ -88,13 +87,6 @@
 			min-width: 0;
 			color: oklch(from var(--repo) max(l, var(--repo-text-min-l)) c h);
 		}
-	}
-	.swatch {
-		flex: none;
-		width: var(--icon-xs);
-		height: var(--icon-xs);
-		border-radius: var(--radius-xs);
-		background: var(--repo);
 	}
 	.remote {
 		flex: 1 1 0;
