@@ -1,6 +1,6 @@
 /**
  * Pure layout math for the window manager: scroll-mode width presets and strip moves, and the tile-mode
- * dwindle tree (build, insert, remove, reconcile, geometry, neighbours, split resizing).
+ * grid tree (build, insert, remove, reconcile, geometry, neighbours, split resizing).
  * Rects are fractions (0..1) of the workspace area.
  */
 import type { TileNode } from "@romp/protocol";
@@ -57,8 +57,6 @@ export interface SplitInfo {
 export const RATIO_MIN = 0.15;
 export const RATIO_MAX = 0.85;
 export const RATIO_STEP = 0.05;
-/** Assumed container aspect (width / height) when none is known. */
-const DEFAULT_ASPECT = 16 / 9;
 
 /** Clamps a split ratio to 0.15–0.85 and, when the split's extent in px is known, to keep both sides ≥ minPx. */
 export function clampRatio(ratio: number, extentPx?: number, minPx = 120): number {
@@ -84,37 +82,49 @@ export function leafIds(node: TileNode | null): string[] {
 	return [...leafIds(node.a), ...leafIds(node.b)];
 }
 
-/** Dwindle spiral: each window splits the space left by the previous one, alternating row and column. */
-export function buildTile(ids: readonly string[], depth = 0): TileNode | null {
-	const [first, ...rest] = ids;
-	if (first === undefined) return null;
-	const next = buildTile(rest, depth + 1);
-	if (!next) return leaf(first);
-	return { type: "split", dir: depth % 2 === 0 ? "row" : "column", ratio: 0.5, a: leaf(first), b: next };
+/** Lays `nodes` out evenly along `dir` as a balanced binary tree (ratios keep every part the same size). */
+function evenSplit(nodes: TileNode[], dir: "row" | "column"): TileNode {
+	if (nodes.length === 1) return nodes[0]!;
+	const mid = Math.ceil(nodes.length / 2);
+	return {
+		type: "split",
+		dir,
+		ratio: mid / nodes.length,
+		a: evenSplit(nodes.slice(0, mid), dir),
+		b: evenSplit(nodes.slice(mid), dir),
+	};
 }
 
 /**
- * Inserts `id` by splitting the leaf `targetId` (or the last leaf when the target is absent). The split runs
- * side by side when the target is wider than tall (in px, given the container aspect), else stacked.
+ * Column-major grid: windows stack top to bottom before a new column opens, so two windows split into top
+ * and bottom. Rows = ceil(√n); columns differ by at most one window, fuller columns first
+ * (2 → 1 column of 2, 3 → 2+1, 4 → 2×2, 5 → 3+2, 7 → 3+2+2, 9 → 3×3).
  */
-export function insertLeaf(
-	tree: TileNode | null,
-	id: string,
-	targetId: string | null,
-	aspect = DEFAULT_ASPECT,
-): TileNode {
-	if (!tree) return leaf(id);
-	const ids = leafIds(tree);
-	const target = targetId && ids.includes(targetId) ? targetId : ids[ids.length - 1]!;
-	const rect = tileRects(tree).get(target) ?? { x: 0, y: 0, w: 1, h: 1 };
-	const dir = rect.w * aspect >= rect.h ? "row" : "column";
-	const replace = (node: TileNode): TileNode => {
-		if (node.type === "leaf") {
-			return node.windowId === target ? { type: "split", dir, ratio: 0.5, a: node, b: leaf(id) } : node;
-		}
-		return { ...node, a: replace(node.a), b: replace(node.b) };
-	};
-	return replace(tree);
+export function buildTile(ids: readonly string[]): TileNode | null {
+	const n = ids.length;
+	if (n === 0) return null;
+	const rows = Math.ceil(Math.sqrt(n));
+	const cols = Math.ceil(n / rows);
+	const columns: TileNode[] = [];
+	for (let c = 0, start = 0; c < cols; c++) {
+		const size = Math.ceil((n - start) / (cols - c));
+		columns.push(evenSplit(ids.slice(start, start + size).map(leaf), "column"));
+		start += size;
+	}
+	return evenSplit(columns, "row");
+}
+
+/** Places `id` after `targetId` in leaf order (or last when the target is absent). */
+function placeAfter(ids: string[], id: string, targetId: string | null): void {
+	const at = targetId ? ids.indexOf(targetId) : -1;
+	ids.splice(at >= 0 ? at + 1 : ids.length, 0, id);
+}
+
+/** Inserts `id` after the leaf `targetId` (or after the last leaf) and re-lays every window as an even grid. */
+export function insertLeaf(tree: TileNode | null, id: string, targetId: string | null): TileNode {
+	const ids = leafIds(tree).filter((x) => x !== id);
+	placeAfter(ids, id, targetId);
+	return buildTile(ids)!;
 }
 
 /** Removes a leaf; its sibling takes the parent's place. */
@@ -128,13 +138,11 @@ export function removeLeaf(tree: TileNode | null, id: string): TileNode | null {
 	return a === tree.a && b === tree.b ? tree : { ...tree, a, b };
 }
 
-/** Makes the tree hold exactly `ids`: drops stale leaves (and duplicates), inserts missing ones next to `focusId`. */
-export function reconcileTile(
-	tree: TileNode | null,
-	ids: readonly string[],
-	focusId: string | null,
-	aspect = DEFAULT_ASPECT,
-): TileNode | null {
+/**
+ * Makes the tree hold exactly `ids`: drops stale leaves (and duplicates), keeping the remaining splits and
+ * ratios. Missing ids go in after `focusId` and the whole tree is re-laid as an even grid.
+ */
+export function reconcileTile(tree: TileNode | null, ids: readonly string[], focusId: string | null): TileNode | null {
 	if (!tree) return buildTile(ids);
 	const wanted = new Set(ids);
 	const seen = new Set<string>();
@@ -150,15 +158,16 @@ export function reconcileTile(
 		if (!b) return a;
 		return a === node.a && b === node.b ? node : { ...node, a, b };
 	};
-	let out = prune(tree);
+	const out = prune(tree);
+	const missing = ids.filter((id) => !seen.has(id));
+	if (missing.length === 0) return out;
+	const order = leafIds(out);
 	let anchor = focusId && seen.has(focusId) ? focusId : null;
-	for (const id of ids) {
-		if (seen.has(id)) continue;
-		out = insertLeaf(out, id, anchor, aspect);
-		seen.add(id);
+	for (const id of new Set(missing)) {
+		placeAfter(order, id, anchor);
 		anchor = id;
 	}
-	return out;
+	return buildTile(order);
 }
 
 export function tileRects(tree: TileNode | null): Map<string, Rect> {

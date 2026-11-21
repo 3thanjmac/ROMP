@@ -43,28 +43,54 @@ describe("moveItem", () => {
 	});
 });
 
-describe("dwindle tree", () => {
-	it("builds an alternating spiral covering the whole area", () => {
-		const tree = buildTile(["a", "b", "c"]);
-		expect(leafIds(tree)).toEqual(["a", "b", "c"]);
-		const r = tileRects(tree);
-		expect(r.get("a")).toEqual({ x: 0, y: 0, w: 0.5, h: 1 });
-		expect(r.get("b")).toEqual({ x: 0.5, y: 0, w: 0.5, h: 0.5 });
-		expect(r.get("c")).toEqual({ x: 0.5, y: 0.5, w: 0.5, h: 0.5 });
-		const area = [...r.values()].reduce((s, x) => s + x.w * x.h, 0);
-		expect(close(area, 1)).toBe(true);
+describe("grid tree", () => {
+	const cells = (ids: string[]) => {
+		const r = tileRects(buildTile(ids));
+		return ids.map((id) => r.get(id));
+	};
+
+	it("stacks the first two windows top and bottom", () => {
+		expect(cells(["a", "b"])).toEqual([
+			{ x: 0, y: 0, w: 1, h: 0.5 },
+			{ x: 0, y: 0.5, w: 1, h: 0.5 },
+		]);
 	});
 
-	it("splits along the longer side of the target in px", () => {
-		const wide = insertLeaf({ type: "leaf", windowId: "a" }, "b", "a", 16 / 9);
-		expect(wide.type === "split" && wide.dir).toBe("row");
-		const tall = insertLeaf({ type: "leaf", windowId: "a" }, "b", "a", 9 / 16);
-		expect(tall.type === "split" && tall.dir).toBe("column");
+	it("fills columns top to bottom before opening a new one", () => {
+		expect(cells(["a", "b", "c"])).toEqual([
+			{ x: 0, y: 0, w: 0.5, h: 0.5 },
+			{ x: 0, y: 0.5, w: 0.5, h: 0.5 },
+			{ x: 0.5, y: 0, w: 0.5, h: 1 },
+		]);
+		expect(cells(["a", "b", "c", "d"])).toEqual([
+			{ x: 0, y: 0, w: 0.5, h: 0.5 },
+			{ x: 0, y: 0.5, w: 0.5, h: 0.5 },
+			{ x: 0.5, y: 0, w: 0.5, h: 0.5 },
+			{ x: 0.5, y: 0.5, w: 0.5, h: 0.5 },
+		]);
 	});
 
-	it("inserts next to the target and falls back to the last leaf", () => {
+	it("keeps columns within one window of each other and cells equal per column", () => {
+		for (let n = 1; n <= 16; n++) {
+			const ids = Array.from({ length: n }, (_, i) => `w${i}`);
+			const r = [...tileRects(buildTile(ids)).values()];
+			expect(r).toHaveLength(n);
+			expect(close(r.reduce((s, x) => s + x.w * x.h, 0), 1)).toBe(true);
+			const byColumn = new Map<number, number[]>();
+			for (const x of r) byColumn.set(Math.round(x.x * 1e6), [...(byColumn.get(Math.round(x.x * 1e6)) ?? []), x.h]);
+			const counts = [...byColumn.values()].map((hs) => hs.length);
+			expect(Math.max(...counts)).toBe(Math.ceil(Math.sqrt(n)));
+			expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+			for (const hs of byColumn.values()) for (const h of hs) expect(close(h, 1 / hs.length)).toBe(true);
+		}
+		expect(cells(["a", "b", "c", "d", "e", "f", "g"]).map((r) => Math.round(r!.x * 3))).toEqual([0, 0, 0, 1, 1, 2, 2]);
+	});
+
+	it("inserts after the target, falls back to the last leaf, and re-lays the grid", () => {
 		const tree = buildTile(["a", "b"]);
-		expect(leafIds(insertLeaf(tree, "x", "a"))).toEqual(["a", "x", "b"]);
+		const mid = insertLeaf(tree, "x", "a");
+		expect(leafIds(mid)).toEqual(["a", "x", "b"]);
+		expect(mid).toEqual(buildTile(["a", "x", "b"]));
 		expect(leafIds(insertLeaf(tree, "x", "missing"))).toEqual(["a", "b", "x"]);
 	});
 
@@ -75,32 +101,36 @@ describe("dwindle tree", () => {
 		expect(removeLeaf({ type: "leaf", windowId: "a" }, "a")).toBeNull();
 	});
 
-	it("reconciles stale, duplicate and missing leaves", () => {
-		const tree: TileNode = {
+	const custom: TileNode = {
+		type: "split",
+		dir: "row",
+		ratio: 0.3,
+		a: { type: "leaf", windowId: "a" },
+		b: {
 			type: "split",
-			dir: "row",
-			ratio: 0.3,
-			a: { type: "leaf", windowId: "a" },
-			b: {
-				type: "split",
-				dir: "column",
-				ratio: 0.5,
-				a: { type: "leaf", windowId: "gone" },
-				b: { type: "leaf", windowId: "c" },
-			},
-		};
-		const out = reconcileTile(tree, ["a", "c", "new"], "a");
-		expect(leafIds(out).sort()).toEqual(["a", "c", "new"]);
-		// The surviving split keeps the user's ratio.
+			dir: "column",
+			ratio: 0.5,
+			a: { type: "leaf", windowId: "gone" },
+			b: { type: "leaf", windowId: "c" },
+		},
+	};
+
+	it("prunes stale and duplicate leaves without touching the user's ratios", () => {
+		const out = reconcileTile(custom, ["a", "c"], "a");
+		expect(leafIds(out)).toEqual(["a", "c"]);
 		expect(out?.type === "split" && out.ratio).toBe(0.3);
+	});
+
+	it("re-lays a grid when windows are missing, placing them after the focus", () => {
+		expect(reconcileTile(custom, ["a", "c", "new"], "a")).toEqual(buildTile(["a", "new", "c"]));
 	});
 
 	it("lists splits with paths and sets ratios immutably", () => {
 		const tree = buildTile(["a", "b", "c"])!;
 		const splits = tileSplits(tree);
-		expect(splits.map((s) => s.path)).toEqual(["", "b"]);
-		expect(splits[1]!.rect).toEqual({ x: 0.5, y: 0, w: 0.5, h: 1 });
-		const next = setRatioAt(tree, "b", 0.7);
+		expect(splits.map((s) => s.path)).toEqual(["", "a"]);
+		expect(splits[1]!.rect).toEqual({ x: 0, y: 0, w: 0.5, h: 1 });
+		const next = setRatioAt(tree, "a", 0.7);
 		expect(tileSplits(next)[1]!.ratio).toBe(0.7);
 		expect(tileSplits(tree)[1]!.ratio).toBe(0.5);
 	});
@@ -123,20 +153,20 @@ describe("ratios", () => {
 		const tree = buildTile(["a", "b", "c"]);
 		const wider = resizeToward(tree, "a", "right");
 		expect(wider?.type === "split" && wider.ratio).toBe(0.55);
-		const down = resizeToward(tree, "b", "down");
+		const down = resizeToward(tree, "a", "down");
 		expect(tileSplits(down)[1]!.ratio).toBe(0.55);
-		// No column split above "a": unchanged.
-		expect(resizeToward(tree, "a", "down")).toBe(tree);
+		// No column split above "c": unchanged.
+		expect(resizeToward(tree, "c", "down")).toBe(tree);
 	});
 });
 
 describe("neighbor", () => {
-	const rects = tileRects(buildTile(["a", "b", "c"]));
+	const rects = tileRects(buildTile(["a", "b", "c", "d"]));
 	it("finds panes by direction", () => {
-		expect(neighbor(rects, "a", "right")).toBe("b");
-		expect(neighbor(rects, "b", "down")).toBe("c");
-		expect(neighbor(rects, "c", "left")).toBe("a");
-		expect(neighbor(rects, "c", "up")).toBe("b");
+		expect(neighbor(rects, "a", "right")).toBe("c");
+		expect(neighbor(rects, "a", "down")).toBe("b");
+		expect(neighbor(rects, "d", "left")).toBe("b");
+		expect(neighbor(rects, "d", "up")).toBe("c");
 		expect(neighbor(rects, "a", "left")).toBeNull();
 	});
 });

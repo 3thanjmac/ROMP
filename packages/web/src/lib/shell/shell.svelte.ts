@@ -153,8 +153,6 @@ interface Located {
 
 class Shell {
 	state: ShellState = $state(seedState());
-	/** Width / height of the workspace area; tile inserts split along the longer side. Set by Desk. */
-	aspect = 16 / 9;
 	/** Width each window had before "toggle full width". Not persisted. */
 	#widthBeforeFull = new Map<string, number>();
 
@@ -204,8 +202,8 @@ class Shell {
 		const at = after ? ws.windows.findIndex((w) => w.id === after) : -1;
 		ws.windows.splice(at >= 0 ? at + 1 : ws.windows.length, 0, win);
 		if (ws.tile || ws.mode === "tile") {
-			const synced = reconcileTile(ws.tile, ws.windows.filter((w) => w.id !== win.id).map((w) => w.id), ws.focusedId, this.aspect);
-			ws.tile = insertLeaf(synced, win.id, at >= 0 ? after : null, this.aspect);
+			const synced = reconcileTile(ws.tile, ws.windows.filter((w) => w.id !== win.id).map((w) => w.id), ws.focusedId);
+			ws.tile = insertLeaf(synced, win.id, at >= 0 ? after : null);
 		}
 		if (opts.focus !== false) {
 			ws.focusedId = win.id;
@@ -271,7 +269,7 @@ class Shell {
 			leafIds(savedTile).length === ids.length &&
 			leafIds(savedTile).every((id) => ids.includes(id));
 		if (unchanged) ws.tile = savedTile;
-		else if (ws.tile || ws.mode === "tile") ws.tile = reconcileTile(ws.tile, ids, ws.focusedId, this.aspect);
+		else if (ws.tile || ws.mode === "tile") ws.tile = reconcileTile(ws.tile, ids, ws.focusedId);
 		this.focus(win.id);
 	}
 
@@ -361,10 +359,9 @@ class Shell {
 		target.windows.push(win);
 		if (target.tile || target.mode === "tile") {
 			target.tile = insertLeaf(
-				reconcileTile(target.tile, target.windows.filter((w) => w.id !== id).map((w) => w.id), target.focusedId, this.aspect),
+				reconcileTile(target.tile, target.windows.filter((w) => w.id !== id).map((w) => w.id), target.focusedId),
 				id,
 				target.focusedId,
-				this.aspect,
 			);
 		}
 		target.focusedId = id;
@@ -411,7 +408,7 @@ class Shell {
 
 	setMode(mode: Workspace["mode"], ws = this.active): void {
 		if (mode === "tile") {
-			ws.tile = reconcileTile(ws.tile, ws.windows.map((w) => w.id), ws.focusedId, this.aspect);
+			ws.tile = reconcileTile(ws.tile, ws.windows.map((w) => w.id), ws.focusedId);
 		}
 		ws.mode = mode;
 	}

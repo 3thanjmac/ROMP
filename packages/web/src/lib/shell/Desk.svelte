@@ -2,7 +2,7 @@
 	/**
 	 * One workspace's windows. Scroll and tile mode render the same keyed frames inside the same track, so
 	 * toggling the mode (or resizing) never remounts a pane: scroll mode lays the track out as a horizontal
-	 * strip, tile mode positions each frame absolutely from the dwindle tree. Phones always use scroll mode.
+	 * strip, tile mode positions each frame absolutely from the grid tree. Phones always use scroll mode.
 	 */
 	import type { Workspace } from "@romp/protocol";
 	import { tileRects, tileSplits } from "./layout";
@@ -21,13 +21,12 @@
 	const rects = $derived(tile ? tileRects(ws.tile) : null);
 	const splits = $derived(tile ? tileSplits(ws.tile) : []);
 
-	// Tile inserts split along the longer side of the area they land in. A resize (rotation, breakpoint
-	// change) also re-aligns the strip, since its scroll offset no longer matches a column edge.
+	// A resize (rotation, breakpoint change) re-aligns the strip, since its scroll offset no longer matches a
+	// column edge.
 	$effect(() => {
 		if (!active || !track) return;
 		const el = track;
 		const ro = new ResizeObserver(() => {
-			if (el.clientHeight > 0) shell.aspect = el.clientWidth / el.clientHeight;
 			reveal("instant");
 			measureView();
 		});

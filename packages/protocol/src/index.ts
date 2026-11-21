@@ -107,7 +107,7 @@ export type TileNode =
 export interface Workspace {
 	id: string;
 	name: string;
-	/** `scroll` = niri-style horizontal strip of columns; `tile` = dwindle split tree. Same windows in both. */
+	/** `scroll` = niri-style horizontal strip of columns; `tile` = grid split tree. Same windows in both. */
 	mode: "scroll" | "tile";
 	/** Window order = strip order in scroll mode, insertion order for tiling. `width` is the column fraction (0.25–1). */
 	windows: WindowState[];
