@@ -24,6 +24,8 @@ export class PaneStatus {
 	title: string | null = $state(null);
 	/** Secondary line in Overview and launcher rows (cwd or path). */
 	subtitle: string | null = $state(null);
+	/** Repo color (a CSS value) the window belongs to → tinted title bar and focus border. */
+	tint: string | null = $state(null);
 	/** Editor save state → SaveStatus; `retrySave` runs when the user clicks a failed save. */
 	save: SaveState | null = $state(null);
 	retrySave: (() => void) | null = $state(null);

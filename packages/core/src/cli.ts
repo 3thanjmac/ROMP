@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import fs from "node:fs";
 import path from "node:path";
-import type { LandMode, RepoSettingsUpdate } from "@romp/protocol";
+import { isRepoColor, type LandMode, REPO_COLORS, type RepoSettingsUpdate } from "@romp/protocol";
 import { checkpoint, shipTask } from "./checkpoint.ts";
 import { QUEUE_STATES, queueDir, type RompEnv, rompEnv } from "./env.ts";
 import { RompError } from "./errors.ts";
@@ -17,7 +17,7 @@ const USAGE = `usage: romp <command>
   repo add <url> [--name n] [--branch b]       add a repo from an upstream URL
   repo add --name n [--branch b]               add a hub-only repo (no upstream)
   repo list [--json]
-  repo set <name> land=push|pr setup=<cmd> test=<cmd> dev=<cmd>
+  repo set <name> land=push|pr color=<latte color> setup=<cmd> test=<cmd> dev=<cmd>
                                                (empty value: none; "-": use .romp.toml or detection)
   task new <repo> <title...> [--slug s] [--json]   runs the repo's setup command in the new worktree
   task list [--json]
@@ -89,7 +89,10 @@ function parseSetting(update: RepoSettingsUpdate, pair: string): void {
 		if (value !== "push" && value !== "pr") throw new UsageError("land must be push or pr");
 		update.land = value as LandMode;
 	} else if (key === "test" || key === "setup" || key === "dev") update[key] = value === "-" ? null : value;
-	else throw new UsageError(`unknown setting ${key} (land, setup, test, dev)`);
+	else if (key === "color") {
+		if (!isRepoColor(value)) throw new UsageError(`color must be one of ${REPO_COLORS.join(", ")}`);
+		update.color = value;
+	} else throw new UsageError(`unknown setting ${key} (land, color, setup, test, dev)`);
 }
 
 /** Run the task's setup command in its worktree, output on stderr so stdout stays the path / JSON. */
@@ -180,7 +183,10 @@ async function main(argv: string[]): Promise<number> {
 				for (const pair of pairs) parseSetting(update, pair);
 				const repo = await updateRepoSettings(env, name, update);
 				if (json) print(repo);
-				else console.log(`${repo.name}: land=${repo.land} setup=${repo.setup ?? "-"} test=${repo.test ?? "-"} dev=${repo.dev ?? "-"}`);
+				else
+					console.log(
+						`${repo.name}: land=${repo.land} color=${repo.color} setup=${repo.setup ?? "-"} test=${repo.test ?? "-"} dev=${repo.dev ?? "-"}`,
+					);
 				return 0;
 			}
 			break;

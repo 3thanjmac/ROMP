@@ -1,13 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
-import type {
-	LandMode,
-	RepoAdd,
-	RepoBranches,
-	RepoCommandName,
-	RepoCommandSource,
-	RepoInfo,
-	RepoSettingsUpdate,
+import {
+	isRepoColor,
+	type LandMode,
+	REPO_COLORS,
+	type RepoAdd,
+	type RepoBranches,
+	type RepoColor,
+	type RepoCommandName,
+	type RepoCommandSource,
+	type RepoInfo,
+	type RepoSettingsUpdate,
 } from "@romp/protocol";
 import {
 	cloneDir,
@@ -42,6 +45,8 @@ export interface RepoSettings {
 	remote: string | null;
 	branch: string;
 	land: LandMode;
+	/** Null only for repos added before colors existed; `repoColors` assigns those one. */
+	color: RepoColor | null;
 	setup: string | null;
 	test: string | null;
 	dev: string | null;
@@ -56,6 +61,7 @@ const tomlString = (value: string) => JSON.stringify(value);
 
 function settingsToToml(s: RepoSettings): string {
 	const lines = ["# Managed by romp.", `branch = ${tomlString(s.branch)}`, `land = ${tomlString(s.land)}`];
+	if (s.color !== null) lines.push(`color = ${tomlString(s.color)}`);
 	if (s.remote !== null) lines.push(`remote = ${tomlString(s.remote)}`);
 	for (const key of COMMAND_NAMES) if (s[key] !== null) lines.push(`${key} = ${tomlString(s[key])}`);
 	lines.push(`createdAt = ${s.createdAt}`);
@@ -77,6 +83,7 @@ export function readSettings(env: RompEnv, name: string): RepoSettings {
 		remote: optString(raw.remote),
 		branch: optString(raw.branch) ?? "main",
 		land: raw.land === "pr" ? "pr" : "push",
+		color: isRepoColor(raw.color) ? raw.color : null,
 		setup: optString(raw.setup),
 		test: optString(raw.test),
 		dev: optString(raw.dev),
@@ -86,6 +93,54 @@ export function readSettings(env: RompEnv, name: string): RepoSettings {
 
 function writeSettings(env: RompEnv, name: string, settings: RepoSettings): void {
 	writeFileAtomic(settingsFile(env, name), settingsToToml(settings));
+}
+
+/** FNV-1a, so a choice between equally used colors looks random but is the same for every caller. */
+function hashName(text: string): number {
+	let h = 0x811c9dc5;
+	for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+	return h >>> 0;
+}
+
+/**
+ * A color for repo `name`: one of the least used among `taken`, so every palette color is used before any repeats
+ * (round-robin); `name` picks among those.
+ */
+export function pickColor(taken: Iterable<RepoColor>, name: string): RepoColor {
+	const counts = new Map<RepoColor, number>(REPO_COLORS.map((c) => [c, 0]));
+	for (const c of taken) counts.set(c, (counts.get(c) ?? 0) + 1);
+	const fewest = Math.min(...counts.values());
+	const least = REPO_COLORS.filter((c) => counts.get(c) === fewest);
+	return least[hashName(name) % least.length] ?? REPO_COLORS[0];
+}
+
+/**
+ * Every repo's color. Repos without one (added before colors existed) get one in the order they were added, saved
+ * to their settings when this user can write them; otherwise the same choice is made again next time.
+ */
+function repoColors(env: RompEnv): Map<string, RepoColor> {
+	const all = repoNames(env).flatMap((name) => {
+		try {
+			return [{ name, settings: readSettings(env, name) }];
+		} catch {
+			return [];
+		}
+	});
+	const colors = new Map<string, RepoColor>();
+	for (const r of all) if (r.settings.color) colors.set(r.name, r.settings.color);
+	const missing = all
+		.filter((r) => !r.settings.color)
+		.sort((a, b) => a.settings.createdAt - b.settings.createdAt || a.name.localeCompare(b.name));
+	for (const r of missing) {
+		const color = pickColor(colors.values(), r.name);
+		colors.set(r.name, color);
+		try {
+			writeSettings(env, r.name, { ...r.settings, color });
+		} catch {
+			// Read-only settings: the choice is deterministic, so every caller shows the same color anyway.
+		}
+	}
+	return colors;
 }
 
 /** Parse a repository's `.romp.toml` (`setup`, `test`, `dev`). Invalid files count as empty. */
@@ -198,6 +253,8 @@ export function hubGit(env: RompEnv, repo: string, args: string[], allowFail = f
 
 export async function getRepo(env: RompEnv, name: string): Promise<RepoInfo> {
 	const settings = readSettings(env, name);
+	// Before the first await: `listRepos` calls this for every repo at once, and the first one saves all colors.
+	const color = settings.color ?? repoColors(env).get(name) ?? pickColor([], name);
 	const ref = `refs/heads/${settings.branch}`;
 	const [toml, pkg, tree] = await Promise.all([
 		hubGit(env, name, ["show", `${ref}:.romp.toml`], true),
@@ -213,6 +270,7 @@ export async function getRepo(env: RompEnv, name: string): Promise<RepoInfo> {
 		remote: settings.remote,
 		branch: settings.branch,
 		land: settings.land,
+		color,
 		...commands,
 		commands: commandSources(settings, fromRepo, detected),
 		cloned: fs.existsSync(cloneDir(env, name)),
@@ -342,6 +400,7 @@ export async function addRepo(env: RompEnv, add: RepoAdd): Promise<RepoInfo> {
 		remote: url || null,
 		branch,
 		land: "push",
+		color: pickColor(repoColors(env).values(), name),
 		setup: null,
 		test: null,
 		dev: null,
@@ -367,6 +426,10 @@ export async function updateRepoSettings(env: RompEnv, name: string, update: Rep
 			throw new RompError("bad_request", "A hub-only repo cannot land through pull requests");
 		settings.land = update.land;
 	}
+	if (update.color !== undefined) {
+		if (!isRepoColor(update.color)) throw new RompError("bad_request", `Unknown color: ${String(update.color)}`);
+		settings.color = update.color;
+	}
 	for (const key of COMMAND_NAMES) if (update[key] !== undefined) settings[key] = update[key];
 	const branch = update.branch?.trim();
 	if (branch === undefined || branch === settings.branch) {
@@ -376,7 +439,14 @@ export async function updateRepoSettings(env: RompEnv, name: string, update: Rep
 	await requireBranchName(env, branch);
 	requireHubWritable(env);
 	await withQueueIdle(env, name, "switching its branch", async () => {
-		const fresh = { ...readSettings(env, name), land: settings.land, setup: settings.setup, test: settings.test, dev: settings.dev };
+		const fresh = {
+			...readSettings(env, name),
+			land: settings.land,
+			color: settings.color,
+			setup: settings.setup,
+			test: settings.test,
+			dev: settings.dev,
+		};
 		const ref = `refs/heads/${branch}`;
 		if (!(await hubGit(env, name, ["rev-parse", "-q", "--verify", ref], true)).stdout.trim()) {
 			if (fresh.remote === null) throw new RompError("bad_request", `The hub has no branch ${branch}`);

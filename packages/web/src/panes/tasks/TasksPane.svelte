@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from "svelte";
 	import { Icons } from "../../lib/icons";
 	import type { PaneContext } from "../../lib/shell/pane.svelte";
 	import { shell } from "../../lib/shell/shell.svelte";
@@ -7,11 +8,14 @@
 	import Dialog from "../../lib/ui/Dialog.svelte";
 	import EmptyState from "../../lib/ui/EmptyState.svelte";
 	import Skeleton from "../../lib/ui/Skeleton.svelte";
+	import { repoColorVar } from "../../lib/repoColors.svelte";
 	import { toast } from "../../lib/ui/toast.svelte";
 	import AddRepoForm from "./AddRepoForm.svelte";
 	import { pinFirst } from "./group";
-	import RepoSection from "./RepoSection.svelte";
+	import RepoPage from "./RepoPage.svelte";
+	import RepoRow from "./RepoRow.svelte";
 	import RepoSettingsDialog from "./RepoSettingsDialog.svelte";
+	import type { RepoInfo } from "@romp/protocol";
 	import { lastRepo, TasksData } from "./tasksData.svelte";
 
 	let { win, pane }: { win: WindowOf<"tasks">; pane: PaneContext<"tasks"> } = $props();
@@ -19,12 +23,14 @@
 	// svelte-ignore state_referenced_locally
 	const data = new TasksData(pane);
 	let adding = $state(false);
-	let expanded: string | null = $state(null);
 	let settingsName: string | null = $state(null);
 	/** Set when another window asked for the settings at the Dev command. */
 	let settingsFocus: "dev" | undefined = $state(undefined);
 	/** The remembered repo, pinned to the top once when the window opens; undefined until the first load. */
 	let pinned: string | null | undefined = $state(undefined);
+	let scroller: HTMLDivElement | undefined = $state();
+	/** The list's scroll position when a repo page opened, restored by Back. */
+	let listScroll = 0;
 
 	$effect(() => data.start());
 
@@ -37,23 +43,42 @@
 		pane.setProps({ settings: undefined });
 	});
 
-	const filtered = $derived(
-		data.repos === null ? null : win.props.repo ? data.repos.filter((r) => r.name === win.props.repo) : data.repos,
+	/** The repo whose page is open (`win.props.repo`), like a folder in the Files window. */
+	const current = $derived(
+		win.props.repo && data.repos ? (data.repos.find((r) => r.name === win.props.repo) ?? null) : null,
 	);
-	const repos = $derived(filtered === null ? null : pinFirst(filtered, pinned ?? null));
+	const repos = $derived(data.repos === null ? null : pinFirst(data.repos, pinned ?? null));
 	const settingsRepo = $derived(data.repos?.find((r) => r.name === settingsName) ?? null);
 
 	// Decided once, on the first load: later polls and clicks never reorder the list.
 	$effect.pre(() => {
-		if (pinned !== undefined || filtered === null) return;
+		if (pinned !== undefined || data.repos === null) return;
 		const last = lastRepo.get();
-		pinned = last !== null && filtered.some((r) => r.name === last) ? last : null;
-		expanded = pinned ?? (filtered.length === 1 ? filtered[0]!.name : null);
+		pinned = last !== null && data.repos.some((r) => r.name === last) ? last : null;
 	});
 
-	function toggle(name: string) {
-		expanded = expanded === name ? null : name;
-		if (expanded) lastRepo.set(expanded);
+	// A page for a repo that is gone (deleted here or elsewhere) falls back to the list.
+	$effect(() => {
+		if (win.props.repo && data.repos !== null && current === null) pane.setProps({ repo: undefined });
+	});
+
+	$effect(() => {
+		pane.status.tint = current ? repoColorVar(current.color) : null;
+	});
+
+	// A page opens at its top; Back returns to where the list was.
+	const onPage = $derived(current !== null);
+	$effect(() => {
+		const page = onPage;
+		untrack(() => {
+			if (scroller) scroller.scrollTop = page ? 0 : listScroll;
+		});
+	});
+
+	function openRepo(name: string) {
+		listScroll = scroller?.scrollTop ?? 0;
+		pane.setProps({ repo: name });
+		lastRepo.set(name);
 	}
 
 	function openAgent(agentId: string, cwd: string) {
@@ -62,24 +87,24 @@
 		}
 	}
 
-	function added(name: string) {
+	function added(repo: RepoInfo) {
 		adding = false;
-		expanded = name;
-		lastRepo.set(name);
-		toast({ message: `Added ${name}`, tone: "success" });
+		data.addRepo(repo);
+		openRepo(repo.name);
+		toast({ message: `Added ${repo.name}`, tone: "success" });
 		void data.load();
 	}
 
 	function deleted(name: string) {
 		settingsName = null;
-		if (expanded === name) expanded = null;
+		if (win.props.repo === name) pane.setProps({ repo: undefined });
 		lastRepo.forget(name);
 		data.dropRepo(name);
 		void data.load();
 	}
 </script>
 
-<div class="tasks">
+<div class="tasks" bind:this={scroller}>
 	{#if data.repos === null && data.error}
 		<EmptyState icon={Icons.Warn} title="Couldn't load tasks" text={data.error}>
 			{#snippet actions()}<Button variant="primary" onclick={() => data.load()}>Retry</Button>{/snippet}
@@ -91,30 +116,40 @@
 		</div>
 	{:else if data.repos?.length === 0}
 		<EmptyState icon={Icons.Tasks} title="Add a repo to start tasks" text="ROMP clones it into a shared hub; each task gets its own worktree and agent.">
-			<AddRepoForm onadded={(r) => added(r.name)} />
+			<AddRepoForm onadded={added} />
 		</EmptyState>
 	{:else}
 		<div class="pad">
-			<header class="head">
-				<h2>Repos</h2>
-				<Button size="sm" icon={Icons.Add} onclick={() => (adding = true)}>Add repo</Button>
-			</header>
-			{#each repos as repo (repo.name)}
-				<RepoSection
-					{repo}
+			{#if current}
+				<RepoPage
+					repo={current}
 					{data}
-					expanded={expanded === repo.name}
-					ontoggle={() => toggle(repo.name)}
-					onsettings={() => ((settingsName = repo.name), (settingsFocus = undefined))}
+					onback={() => pane.setProps({ repo: undefined })}
+					onsettings={() => ((settingsName = current.name), (settingsFocus = undefined))}
 					onagent={openAgent}
 				/>
-			{/each}
+			{:else}
+				<header class="head">
+					<h2>Repos</h2>
+					<Button size="sm" icon={Icons.Add} onclick={() => (adding = true)}>Add repo</Button>
+				</header>
+				<ul class="list">
+					{#each repos as repo (repo.name)}
+						<RepoRow
+							{repo}
+							{data}
+							onopen={() => openRepo(repo.name)}
+							onsettings={() => ((settingsName = repo.name), (settingsFocus = undefined))}
+						/>
+					{/each}
+				</ul>
+			{/if}
 		</div>
 	{/if}
 </div>
 
 <Dialog bind:open={adding} title="Add repo">
-	<AddRepoForm onadded={(r) => added(r.name)} oncancel={() => (adding = false)} />
+	<AddRepoForm onadded={added} oncancel={() => (adding = false)} />
 </Dialog>
 
 {#if settingsRepo}
@@ -144,5 +179,8 @@
 		align-items: center;
 		justify-content: space-between;
 		padding-block-end: var(--sp-2);
+	}
+	.list {
+		padding: 0;
 	}
 </style>

@@ -59,7 +59,7 @@
 	const canMinimize = $derived(sessionOf(win) !== null && status.conn !== "exited");
 </script>
 
-<header class="bar" class:focused class:phone>
+<header class="bar" class:focused class:phone class:tinted={status.tint !== null}>
 	<span class="kind"><Icon icon={KIND_ICON[win.kind]} /></span>
 	{#if renaming}
 		<input
@@ -142,6 +142,15 @@
 		&.focused {
 			background: var(--surface-2);
 			color: var(--fg);
+		}
+		/* The window belongs to a repo: its color, mixed into the bar and drawn as the bar's bottom edge. */
+		&.tinted {
+			/* oklab, not oklch: a near-grey surface has an arbitrary hue that oklch would blend into the repo's. */
+			background: color-mix(in oklab, var(--surface-1), var(--tint) var(--repo-tint-bar));
+			border-block-end-color: var(--tint);
+			&.focused {
+				background: color-mix(in oklab, var(--surface-2), var(--tint) var(--repo-tint-bar));
+			}
 		}
 		&.phone {
 			box-sizing: content-box;

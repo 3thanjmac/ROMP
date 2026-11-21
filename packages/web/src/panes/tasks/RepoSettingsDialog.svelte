@@ -1,10 +1,19 @@
 <script lang="ts">
-	import { MAX_ENV_BYTES, type RepoCommandName, type RepoInfo, type RepoSettingsUpdate } from "@romp/protocol";
+	import {
+		MAX_ENV_BYTES,
+		REPO_COLORS,
+		type RepoCommandName,
+		type RepoInfo,
+		type RepoSettingsUpdate,
+	} from "@romp/protocol";
 	import { api, errorMessage } from "../../lib/api";
 	import { Icons } from "../../lib/icons";
+	import { repoColorVar } from "../../lib/repoColors.svelte";
+	import { tooltip } from "../../lib/ui/tooltip";
 	import AsyncButton from "../../lib/ui/AsyncButton.svelte";
 	import Button from "../../lib/ui/Button.svelte";
 	import Dialog from "../../lib/ui/Dialog.svelte";
+	import Icon from "../../lib/ui/Icon.svelte";
 	import { toast } from "../../lib/ui/toast.svelte";
 	import { remoteLabel } from "./group";
 	import type { TasksData } from "./tasksData.svelte";
@@ -50,6 +59,8 @@
 
 	// svelte-ignore state_referenced_locally
 	let branch = $state(repo.branch);
+	// svelte-ignore state_referenced_locally
+	let color = $state(repo.color);
 	let branches: string[] | null = $state(null);
 	let branchesError: string | null = $state(null);
 
@@ -79,7 +90,8 @@
 			return draft.override !== saved.override || (draft.override && draft.value !== saved.value);
 		}),
 	);
-	const changed = $derived(branchChanged || changedCommands.length > 0 || envFile !== null || removeEnv);
+	const colorChanged = $derived(color !== repo.color);
+	const changed = $derived(branchChanged || colorChanged || changedCommands.length > 0 || envFile !== null || removeEnv);
 	const options = $derived.by(() => {
 		const list = branches ?? [];
 		return list.includes(repo.branch) ? list : [repo.branch, ...list];
@@ -165,6 +177,7 @@
 		try {
 			const patch: RepoSettingsUpdate = {};
 			if (branchChanged) patch.branch = branch;
+			if (colorChanged) patch.color = color;
 			for (const key of changedCommands) patch[key] = drafts[key].override ? drafts[key].value : null;
 			if (Object.keys(patch).length > 0) data.replaceRepo(await api.repos.settings(repo.name, patch));
 			if (envFile) {
@@ -212,6 +225,19 @@
 		<Button variant="ghost" size="sm" icon={Icons.Back} onclick={() => (open = false)}>Back</Button>
 		<h2 class="truncate">{repo.name}</h2>
 	</header>
+
+	<section>
+		<h3 id="{id}-color">Color</h3>
+		<div class="swatches" role="radiogroup" aria-labelledby="{id}-color">
+			{#each REPO_COLORS as c (c)}
+				<label class="swatch" style:--swatch-color={repoColorVar(c)} use:tooltip={c}>
+					<input class="sr-only" type="radio" name="{id}-color" value={c} aria-label={c} bind:group={color} />
+					{#if color === c}<Icon icon={Icons.Check} size="sm" />{/if}
+				</label>
+			{/each}
+		</div>
+		<p class="meta">Marks this repo's tasks and agent windows, for everyone using this VM.</p>
+	</section>
 
 	<section>
 		<h3 id="{id}-branch">Integration branch</h3>
@@ -352,6 +378,36 @@
 	section {
 		display: grid;
 		gap: var(--sp-2);
+	}
+	.swatches {
+		display: grid;
+		/* Two even rows of the 14 colors. */
+		grid-template-columns: repeat(7, var(--swatch));
+		gap: var(--sp-2);
+	}
+	.swatch {
+		display: grid;
+		place-items: center;
+		width: var(--swatch);
+		height: var(--swatch);
+		border-radius: var(--radius-md);
+		background: var(--swatch-color);
+		/* A dark shade of the swatch's own hue reads on every Latte color. */
+		color: oklch(from var(--swatch-color) 0.22 c h);
+		cursor: pointer;
+		transition: box-shadow var(--dur-fast);
+		&:hover {
+			box-shadow: 0 0 0 var(--ring-w) var(--line-strong);
+		}
+		&:has(:checked) {
+			box-shadow:
+				0 0 0 var(--ring-w) var(--surface-2),
+				0 0 0 calc(var(--ring-w) * 2.5) var(--swatch-color);
+		}
+		&:has(:focus-visible) {
+			outline: var(--ring-w) solid var(--accent);
+			outline-offset: calc(var(--ring-w) * 4);
+		}
 	}
 	.commands {
 		gap: var(--sp-3);

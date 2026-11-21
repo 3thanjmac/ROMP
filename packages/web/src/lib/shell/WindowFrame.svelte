@@ -45,6 +45,7 @@
 	class="frame"
 	class:focused
 	class:bare
+	style:--tint={status.tint}
 	data-kind={win.kind}
 	data-window={id}
 	tabindex="-1"
@@ -73,7 +74,7 @@
 		outline: none;
 		transition: border-color var(--dur);
 		&.focused {
-			border-color: var(--accent);
+			border-color: var(--tint, var(--accent));
 			z-index: var(--z-pane-focused);
 		}
 		&.bare {

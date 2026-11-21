@@ -36,6 +36,8 @@
 	/* Interaction lightness shifts for oklch(from ...) hover/active variants */
 	--hover-l: 0.04;
 	--active-l: -0.03;
+	/* Lightness floor for a repo color used as text (oklch(from var(--repo) max(l, …) c h)): lifts the darker Latte accents on dark surfaces. */
+	--repo-text-min-l: 0.76;
 
 	/* Terminal palette */
 	--ansi-black: oklch(0.3 0.01 255);
@@ -79,6 +81,7 @@
 
 		--hover-l: -0.04;
 		--active-l: -0.03;
+		--repo-text-min-l: 0;
 
 		--ansi-black: oklch(0.3 0.01 255);
 		--ansi-red: oklch(0.52 0.19 25);
@@ -132,6 +135,25 @@
 	--conn-reconnecting: var(--warning);
 	--conn-offline: var(--fg-subtle);
 	--conn-exited: var(--fg-subtle);
+
+	/* Repo colors: Catppuccin Latte accents, same in both themes (names match REPO_COLORS in @romp/protocol). */
+	--repo-rosewater: oklch(0.714 0.105 33.1);
+	--repo-flamingo: oklch(0.686 0.126 20.9);
+	--repo-pink: oklch(0.726 0.174 338.4);
+	--repo-mauve: oklch(0.555 0.25 297);
+	--repo-red: oklch(0.55 0.216 19.8);
+	--repo-maroon: oklch(0.625 0.197 20.3);
+	--repo-peach: oklch(0.692 0.204 42.4);
+	--repo-yellow: oklch(0.714 0.149 67.8);
+	--repo-green: oklch(0.625 0.177 140.4);
+	--repo-teal: oklch(0.602 0.098 201.1);
+	--repo-sky: oklch(0.682 0.145 235.4);
+	--repo-sapphire: oklch(0.648 0.107 212.9);
+	--repo-blue: oklch(0.559 0.226 262.1);
+	--repo-lavender: oklch(0.664 0.175 273.1);
+	/* How much of a repo's color tints a surface: its agent chat, and (stronger) its window's title bar. */
+	--repo-tint: 14%;
+	--repo-tint-bar: 32%;
 
 	/* Spacing (4pt grid) */
 	--sp-1: 0.25rem;
@@ -238,6 +260,7 @@
 	--wheel-model-w: 16rem;
 	--wheel-effort-w: 7.5rem;
 	--usage-bar-w: 4rem;
+	--swatch: 2rem;
 
 	/* Safe areas and visual viewport (viewport.svelte.ts overwrites the last three at runtime) */
 	--safe-top: env(safe-area-inset-top, 0px);

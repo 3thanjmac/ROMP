@@ -1,6 +1,7 @@
 /** Repos, tasks and agents for one Tasks pane, plus the actions its rows run. */
 import type { AgentInfo, LandMode, RepoInfo, TaskInfo } from "@romp/protocol";
 import { api, errorMessage } from "../../lib/api";
+import { repoColors } from "../../lib/repoColors.svelte";
 import type { PaneContext } from "../../lib/shell/pane.svelte";
 import { shell } from "../../lib/shell/shell.svelte";
 import { toast } from "../../lib/ui/toast.svelte";
@@ -14,7 +15,7 @@ export const taskKey = (t: Pick<TaskInfo, "repo" | "slug">) => `${t.repo}/${t.sl
 
 const LAST_REPO_KEY = "romp.tasks.lastRepo";
 
-/** The repo the user last expanded, so a new Tasks window opens on it. Storage can throw (private mode, quota). */
+/** The repo the user last opened, listed first when a Tasks window opens. Storage can throw (private mode, quota). */
 export const lastRepo = {
 	get(): string | null {
 		try {
@@ -61,6 +62,7 @@ export class TasksData {
 		try {
 			const [repos, tasks, agents] = await Promise.all([api.repos.list(), api.tasks.list(), api.agents.list()]);
 			this.repos = repos;
+			repoColors.update(repos);
 			this.tasks = tasks;
 			this.agents = agents;
 			this.error = null;
@@ -215,6 +217,13 @@ export class TasksData {
 
 	replaceRepo(updated: RepoInfo): void {
 		this.repos = this.repos?.map((r) => (r.name === updated.name ? updated : r)) ?? null;
+		repoColors.update([updated]);
+	}
+
+	/** Shows a repo just added ahead of the next load. */
+	addRepo(repo: RepoInfo): void {
+		if (!this.repos?.some((r) => r.name === repo.name)) this.repos = [...(this.repos ?? []), repo];
+		repoColors.update([repo]);
 	}
 
 	/** Drops a deleted repo and its tasks locally ahead of the next load. */

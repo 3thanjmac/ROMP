@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { REPO_COLORS } from "@romp/protocol";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -407,5 +408,26 @@ describe("romp", () => {
 		await removeTask(ethan, "nodeapp", "try-it");
 		expect(fs.existsSync(record)).toBe(false);
 		await removeRepo(ethan, "nodeapp");
+	});
+
+	test("colors: round-robin through the palette, saved for older repos, settable", async () => {
+		const before = (await listRepos(ethan)).length;
+		for (let i = before; i < REPO_COLORS.length; i++) await addRepo(ethan, { url: "", name: `hue${i}` });
+		const repos = await listRepos(alice);
+		expect(repos).toHaveLength(REPO_COLORS.length);
+		expect(new Set(repos.map((r) => r.color)).size).toBe(REPO_COLORS.length);
+
+		// A repo added before colors existed gets the least used one (here, its own freed color) and keeps it.
+		const demoColor = repos.find((r) => r.name === "demo")?.color;
+		const settings = path.join(root, "repos", "demo.toml");
+		fs.writeFileSync(settings, read(root, "repos/demo.toml").replace(/^color = .*\n/m, ""));
+		expect((await listRepos(alice)).find((r) => r.name === "demo")?.color).toBe(demoColor!);
+		expect(read(root, "repos/demo.toml")).toContain(`color = "${demoColor}"`);
+
+		const extra = await addRepo(ethan, { url: "", name: "hue-extra" });
+		expect(REPO_COLORS).toContain(extra.color);
+		const other = REPO_COLORS.find((c) => c !== extra.color)!;
+		expect((await updateRepoSettings(alice, "hue-extra", { color: other })).color).toBe(other);
+		await expect(updateRepoSettings(alice, "hue-extra", { color: "grey" as never })).rejects.toMatchObject({ code: "bad_request" });
 	});
 });

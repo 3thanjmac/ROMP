@@ -29,6 +29,18 @@ export function groupTasks(tasks: readonly TaskInfo[]): Array<{ group: TaskGroup
 	);
 }
 
+/** For a repo's row in the list: tasks that need attention, and tasks not landed yet. */
+export function repoCounts(tasks: readonly TaskInfo[]): { attention: number; open: number } {
+	let attention = 0;
+	let open = 0;
+	for (const t of tasks) {
+		const group = GROUP_OF[t.status];
+		if (group === "attention") attention++;
+		if (group !== "landed") open++;
+	}
+	return { attention, open };
+}
+
 export const TITLE_MAX = 60;
 
 /** `repos` with the one named `pinned` moved to the front; the rest keep their order. */

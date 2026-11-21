@@ -371,6 +371,31 @@ export type AgentServerMsg =
 
 export type LandMode = "push" | "pr";
 
+/**
+ * Catppuccin Latte accents (https://catppuccin.com/palette/), in palette order; the grey and white text/surface
+ * colors are left out. Each repo gets one: assigned round-robin when it is added, changeable in its settings.
+ */
+export const REPO_COLORS = [
+	"rosewater",
+	"flamingo",
+	"pink",
+	"mauve",
+	"red",
+	"maroon",
+	"peach",
+	"yellow",
+	"green",
+	"teal",
+	"sky",
+	"sapphire",
+	"blue",
+	"lavender",
+] as const;
+
+export type RepoColor = (typeof REPO_COLORS)[number];
+
+export const isRepoColor = (value: unknown): value is RepoColor => REPO_COLORS.includes(value as RepoColor);
+
 export interface RepoInfo {
 	/** Hub repo name, e.g. `my-app` (hub path `<ROMP_ROOT>/hub/my-app.git`). */
 	name: string;
@@ -380,6 +405,8 @@ export interface RepoInfo {
 	branch: string;
 	/** `push`: merge queue pushes to upstream `branch`. `pr`: opens a PR with auto-merge. Default `push`. */
 	land: LandMode;
+	/** Color the web app marks the repo's tasks and agents with. */
+	color: RepoColor;
 	/**
 	 * Effective commands: hub settings, else the repo's `.romp.toml` on `branch`, else detected from its files
 	 * (lockfile → install for `setup`, package.json `test`/`dev` scripts). Null when unset or disabled.
@@ -472,6 +499,7 @@ export interface RepoSettingsUpdate {
 	dev?: string | null;
 	/** New integration branch. Must exist upstream (fetched into the hub) or, for hub-only repos, in the hub. */
 	branch?: string;
+	color?: RepoColor;
 }
 /**
  * `GET /api/repos/:name/branches` → `RepoBranches`: upstream heads (`git ls-remote --heads`) for repos with a

@@ -23,6 +23,7 @@ import {
 	type DevCommand,
 	type GitIdentity,
 	type ListeningPort,
+	isRepoColor,
 	MAX_ENV_BYTES,
 	type Me,
 	type ModelChoice,
@@ -31,6 +32,7 @@ import {
 	type TaskInfo,
 	type TermClientMsg,
 	parseLoopbackCallback,
+	REPO_COLORS,
 	THINKING_LEVELS,
 } from "@romp/protocol";
 import type { Server, WebSocketHandler } from "bun";
@@ -539,6 +541,10 @@ function buildRouter(deps: AppDeps): Router<Ctx> {
 			update[key] = value;
 		}
 		if (body.branch !== undefined) update.branch = requireString(body, "branch");
+		if (body.color !== undefined) {
+			if (!isRepoColor(body.color)) throw badRequest(`"color" must be one of ${REPO_COLORS.join(", ")}`);
+			update.color = body.color;
+		}
 		return json(await updateRepoSettings(romp, name, update));
 	});
 	router.on("PUT", "/api/repos/:name/env", async ({ req }, { name = "" }) =>

@@ -4,6 +4,7 @@
 	import type { Effect, SendKind, UiAnswer } from "../../lib/agent/types";
 	import { openExternal } from "../../lib/external";
 	import { tildify } from "../../lib/format";
+	import { repoColors, repoColorVar } from "../../lib/repoColors.svelte";
 	import { Icons } from "../../lib/icons";
 	import type { PaneContext } from "../../lib/shell/pane.svelte";
 	import { session as me } from "../../lib/shell/session.svelte";
@@ -31,6 +32,9 @@
 	let creating = false;
 
 	const view = $derived(agent?.view ?? null);
+	/** The task's repo when the agent works in a task worktree: its name prefixes the title, its color tints the window. */
+	const repo = $derived(view?.info?.task?.repo ?? null);
+	const repoColor = $derived(repo ? repoColors.get(repo) : null);
 	const conn = $derived(agent?.conn ?? "connecting");
 	const live = $derived(conn === "live" && view?.loaded === true);
 	/** The gateway no longer knows this agent id (closed 4404/4410 or missing from /api/agents). */
@@ -109,7 +113,9 @@
 		status.clients = view?.info?.clients ?? 0;
 		status.busy = view?.busy ?? false;
 		status.needsInput = (view?.pendingUi.length ?? 0) > 0;
-		status.title = view?.info?.title ?? null;
+		const title = view?.info?.title ?? null;
+		status.title = title && repo ? `${repo} • ${title}` : title;
+		status.tint = repoColor ? repoColorVar(repoColor) : null;
 		status.subtitle = tildify(cwd, me.me?.home);
 	});
 
@@ -133,7 +139,7 @@
 	}
 </script>
 
-<div class="agent">
+<div class="agent" class:tinted={repoColor !== null}>
 	{#if gone}
 		<Banner tone="neutral" icon={Icons.Warn} text="This agent session no longer exists.">
 			{#snippet actions()}
@@ -237,6 +243,10 @@
 		min-height: 0;
 		min-width: 0;
 		background: var(--surface-1);
+	}
+	/* A subtle wash of the repo color (the frame sets --tint), so a chat reads as belonging to its repo. */
+	.agent.tinted {
+		background: color-mix(in oklab, var(--surface-1), var(--tint) var(--repo-tint));
 	}
 	.center {
 		flex: 1;
