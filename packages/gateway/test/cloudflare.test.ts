@@ -54,13 +54,13 @@ async function make(routes: Record<string, (body: unknown) => unknown>, notices:
 	return { service, api, dir, notices };
 }
 
-/** Turns the event loop until `check` holds; the service reads the queue on a zero-delay timer after connecting. */
+/**
+ * Waits until `check` holds; the service reads the queue on a zero-delay timer after connecting. It yields to real
+ * timers, not setImmediate: a burst of immediates can finish before Bun fires that timer.
+ */
 const until = async (check: () => boolean) => {
-	for (let i = 0; i < 1000 && !check(); i++) {
-		const { promise, resolve } = Promise.withResolvers<void>();
-		setImmediate(resolve);
-		await promise;
-	}
+	const deadline = Date.now() + 2000;
+	while (!check() && Date.now() < deadline) await Bun.sleep(1);
 	expect(check()).toBe(true);
 };
 
