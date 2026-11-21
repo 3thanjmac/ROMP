@@ -152,7 +152,7 @@
 	--repo-blue: oklch(0.559 0.226 262.1);
 	--repo-lavender: oklch(0.664 0.175 273.1);
 	/* How much of a repo's color tints a surface: its agent chat, and (stronger) its window's title bar. */
-	--repo-tint: 7%;
+	--repo-tint: 2%;
 	--repo-tint-bar: 32%;
 
 	/* Spacing (4pt grid) */
