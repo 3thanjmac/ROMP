@@ -14,7 +14,7 @@
 	import AgentUsageButton from "./AgentUsageButton.svelte";
 	import SaveStatus from "./SaveStatus.svelte";
 	import { displayTitle, sessionOf, shell } from "./shell.svelte";
-	import { viewport } from "./viewport.svelte";
+	import { resampleStatusBar, viewport } from "./viewport.svelte";
 	import WidthPresetButton from "./WidthPresetButton.svelte";
 
 	interface Props {
@@ -57,9 +57,19 @@
 
 	/** Windows showing a live session can be minimized: detached while the session keeps running. */
 	const canMinimize = $derived(sessionOf(win) !== null && status.conn !== "exited");
+
+	// On a phone the focused bar is the top of the screen, and iOS paints the status bar its color (`.phone` below).
+	// A bar that becomes focused or shown updates the status bar now; a color change, once its transition ends.
+	$effect(() => {
+		if (phone && focused) resampleStatusBar();
+	});
+
+	function ontransitionend(e: TransitionEvent) {
+		if (phone && focused && e.target === e.currentTarget && e.propertyName === "background-color") resampleStatusBar();
+	}
 </script>
 
-<header class="bar" class:focused class:phone class:tinted={status.tint !== null}>
+<header class="bar" class:focused class:phone class:tinted={status.tint !== null} {ontransitionend}>
 	<span class="kind"><Icon icon={KIND_ICON[win.kind]} /></span>
 	{#if renaming}
 		<input
@@ -155,6 +165,12 @@
 		&.phone {
 			box-sizing: content-box;
 			padding-top: var(--safe-top);
+			/*
+				iOS colors the status bar from the first fixed or sticky ancestor of the element at the top center. Without
+				this that is .app, which iOS treats as page-sized and keeps the color it already had. With no inset it
+				never sticks, so it lays out as before.
+			*/
+			position: sticky;
 		}
 	}
 	.kind {

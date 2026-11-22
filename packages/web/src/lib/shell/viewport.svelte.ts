@@ -193,6 +193,22 @@ function preventFocusScroll(): void {
 	);
 }
 
+/**
+ * Since iOS 26 WebKit paints the status bar above a Home Screen app the background color of the fixed or sticky
+ * element at the top of the page (LocalFrameView::fixedContainerEdges), but it reads that color again only when a
+ * fixed or sticky element is added or removed, not when one changes color. Adding and removing a fixed probe makes
+ * it read the color on its next frame.
+ */
+export function resampleStatusBar(): void {
+	if (!IOS) return;
+	const probe = document.createElement("div");
+	probe.style.position = "fixed";
+	document.body.append(probe);
+	// Laying it out gives it a renderer, which registers the fixed element with WebKit; removing it unregisters it.
+	void probe.offsetWidth;
+	probe.remove();
+}
+
 export function initViewport(): void {
 	const phone = matchMedia("(max-width: 639px)");
 	const desktop = matchMedia("(min-width: 1024px)");
