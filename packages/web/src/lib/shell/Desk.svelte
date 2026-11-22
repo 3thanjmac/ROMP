@@ -9,7 +9,7 @@
 	import { layoutMode, shell } from "./shell.svelte";
 	import SplitHandle from "./SplitHandle.svelte";
 	import { frameUi } from "./ui.svelte";
-	import { viewport } from "./viewport.svelte";
+	import { resampleStatusBar, viewport } from "./viewport.svelte";
 	import WindowFrame from "./WindowFrame.svelte";
 
 	let { ws, active }: { ws: Workspace; active: boolean } = $props();
@@ -96,9 +96,18 @@
 	const NO_SCROLLEND = !("onscrollend" in window);
 	const SETTLE_MS = 150;
 	let settleTimer: number | undefined;
+	/** The page under the middle of the screen; iOS colors the status bar from that page's title bar. */
+	let centerPage = -1;
 	function onscroll() {
 		measureView();
-		if (!carousel || !NO_SCROLLEND) return;
+		if (!carousel || !track) return;
+		// Halfway through a swipe the next page reaches the middle: recolor the status bar then, not once it settles.
+		const page = pageAt(track);
+		if (page !== centerPage) {
+			centerPage = page;
+			resampleStatusBar();
+		}
+		if (!NO_SCROLLEND) return;
 		clearTimeout(settleTimer);
 		settleTimer = window.setTimeout(settled, SETTLE_MS);
 	}

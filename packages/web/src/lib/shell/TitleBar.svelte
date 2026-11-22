@@ -28,6 +28,11 @@
 	let { win, status, focused, showWidth }: Props = $props();
 
 	const phone = $derived(viewport.layout === "phone");
+	/**
+	 * A phone shows one window at a time, so every bar there wears the focused look. A swipe then never recolors a
+	 * bar, and the status bar can take the next bar's final color while the swipe is still moving.
+	 */
+	const lit = $derived(focused || phone);
 	const title = $derived(displayTitle(win));
 	const loc = $derived(shell.locate(win.id));
 	const others = $derived(shell.state.workspaces.filter((w) => w.id !== loc?.ws.id));
@@ -69,7 +74,7 @@
 	}
 </script>
 
-<header class="bar" class:focused class:phone class:tinted={status.tint !== null} {ontransitionend}>
+<header class="bar" class:focused={lit} class:phone class:tinted={status.tint !== null} {ontransitionend}>
 	<span class="kind"><Icon icon={KIND_ICON[win.kind]} /></span>
 	{#if renaming}
 		<input
