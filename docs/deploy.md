@@ -176,13 +176,7 @@ romp omp-defaults on       # resume, and update now
 
 ### Designer (opt-in)
 
-The shared settings include a `designer` agent, a `/design` command, a design gate that nudges the agent to consult the designer before UI work, and a Designer advisor. All of it is off by default (`task.disabledAgents: [designer]`, and the advisor is `enabled: false` in `WATCHDOG.yml`). To opt in:
-
-1. In `omp`, open `/models` and assign a model to the `designer` role.
-2. `omp config set task.disabledAgents '[]'` enables the agent, `/design` and the design gate.
-3. Optional, for the advisor that reviews every turn: set `enabled: true` under `Designer` in `~/.omp/agent/WATCHDOG.yml` and run `omp config set advisor.enabled true`. It reviews with the designer model on every turn, which costs tokens.
-
-These changes are the user's own values, so later updates leave them in place.
+The shared settings include a `designer` agent, a `/design` command, a design gate and a Designer advisor, all off by default. [designer.md](designer.md) covers turning them on and using them.
 
 ## 9. LAN access without Tailscale (optional)
 

@@ -47,6 +47,7 @@ flowchart LR
 | `deploy/` | `install.sh`, `add-user.sh`, systemd units, command wrappers, shared OMP settings (`omp-defaults/`) |
 | `docs/deploy.md` | Detailed TrueNAS + Tailscale setup |
 | `docs/design.md` | Web app design notes |
+| `docs/designer.md` | Designer agent, `/design` and design gate: setup and use |
 
 ## Setup
 
