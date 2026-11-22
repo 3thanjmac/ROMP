@@ -147,8 +147,10 @@ async function generateMessage(env: RompEnv, cwd: string, title: string, diff: s
 	const omp = findOmp(env);
 	if (!omp) return null;
 	const prompt = [
-		"Write a git commit message for the change below. Reply with only the message:",
-		"a subject line of at most 72 characters in the imperative mood, optionally a blank line and a short body.",
+		"Write a git commit message for the change below, following Conventional Commits (https://www.conventionalcommits.org).",
+		"Reply with only the message: a subject line of at most 72 characters formatted as `<type>(<optional scope>): <description>`,",
+		"where type is one of feat, fix, docs, style, refactor, perf, test, build, ci, chore or revert, and the description is in the imperative mood;",
+		"optionally a blank line and a short body. Mark breaking changes with `!` after the type/scope.",
 		"No code fences, no quotes, no preamble.",
 		`Task title: ${title}`,
 		"",
