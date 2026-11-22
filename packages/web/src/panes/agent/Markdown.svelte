@@ -20,6 +20,8 @@
 <style>
 	.md {
 		display: grid;
+		/* A 0 minimum keeps a wide code block or table from widening the column; it scrolls inside itself. */
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--sp-3);
 		min-width: 0;
 		overflow-wrap: anywhere;

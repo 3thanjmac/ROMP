@@ -159,6 +159,7 @@
 	}
 	.body {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--sp-2);
 		padding: 0 var(--sp-2) var(--sp-2);
 		min-width: 0;

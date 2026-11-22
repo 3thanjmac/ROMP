@@ -151,12 +151,15 @@
 <style>
 	.card {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--sp-2);
 		padding: var(--sp-3);
 		background: var(--accent-soft);
 		border: 1px solid var(--accent);
 		border-radius: var(--radius-lg);
 		min-width: 0;
+		/* Titles and options often carry a whole command or path with no break points. */
+		overflow-wrap: anywhere;
 	}
 	.head {
 		display: flex;
@@ -166,11 +169,11 @@
 	}
 	.message {
 		white-space: pre-wrap;
-		overflow-wrap: anywhere;
 	}
 	form,
 	fieldset {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--sp-2);
 		min-width: 0;
 	}
@@ -186,12 +189,14 @@
 	}
 	.options {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--sp-1);
 		:global(button) {
 			width: 100%;
 			min-height: var(--tap);
 			justify-content: flex-start;
 			text-align: start;
+			white-space: normal;
 		}
 		:global(button[aria-pressed="true"]) {
 			border-color: var(--accent);

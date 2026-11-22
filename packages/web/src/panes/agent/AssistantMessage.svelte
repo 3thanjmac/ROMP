@@ -60,11 +60,13 @@
 <style>
 	.assistant {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--sp-3);
 		min-width: 0;
 	}
 	.tools {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--sp-1);
 		min-width: 0;
 	}

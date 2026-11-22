@@ -267,6 +267,7 @@
 	.extras,
 	.below {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--sp-2);
 		width: 100%;
 		max-width: var(--chat-measure);
