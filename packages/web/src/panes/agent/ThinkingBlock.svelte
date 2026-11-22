@@ -2,11 +2,12 @@
 	import { formatDuration } from "../../lib/agent/format";
 	import type { ThinkingBlock } from "../../lib/agent/types";
 	import { Icons } from "../../lib/icons";
+	import { prefs } from "../../lib/prefs.svelte";
 	import Button from "../../lib/ui/Button.svelte";
 
 	let { block, live }: { block: ThinkingBlock; live: boolean } = $props();
 
-	let open = $state(false);
+	let open = $state(!prefs.collapseThinking);
 
 	const label = $derived.by(() => {
 		if (live) return "Thinking…";

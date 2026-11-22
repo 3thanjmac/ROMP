@@ -13,6 +13,7 @@
 	import { relativeTime } from "../format";
 	import { Icons } from "../icons";
 	import { disablePush, enablePush, push, testPush } from "../push.svelte";
+	import { prefs } from "../prefs.svelte";
 	import AsyncButton from "../ui/AsyncButton.svelte";
 	import Banner from "../ui/Banner.svelte";
 	import Button from "../ui/Button.svelte";
@@ -395,6 +396,14 @@
 					{#if !saved}Loading Git identity…{:else if status === "saving"}Saving…{:else if status === "saved"}Saved{/if}
 				</p>
 			{/if}
+		</section>
+		<section aria-labelledby="settings-agent-chats">
+			<h2 id="settings-agent-chats">Agent chats</h2>
+			<p class="note">Saved on this device.</p>
+			<label class="worker">
+				<input type="checkbox" bind:checked={prefs.collapseThinking} />
+				<span class="name">Collapse thinking</span>
+			</label>
 		</section>
 		<section aria-labelledby="settings-notifications">
 			<h2 id="settings-notifications">Notifications</h2>

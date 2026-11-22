@@ -72,9 +72,9 @@
 		What should the agent do?
 		<textarea
 			bind:value={prompt}
-			required
 			rows="3"
 			aria-invalid={touched && !prompt.trim()}
+			oninput={() => (touched = false)}
 			placeholder="Describe the change..."
 		></textarea>
 	</label>
