@@ -378,6 +378,17 @@ kbd {
 	white-space: pre-line;
 }
 
+/* ───────────── Popovers (menus, toasts) ───────────── */
+
+/*
+	WebKit gives every popover in the top layer a transparent, full-screen ::backdrop. iOS colors the status bar from
+	the element at the top of the screen, and a backdrop there makes it keep a stale color for as long as a menu or
+	toast is open. None of ours dims the page, so they get no backdrop. Sheets and dialogs are <dialog>s and keep theirs.
+*/
+[popover]::backdrop {
+	display: none;
+}
+
 /* ───────────── Scrollbars ───────────── */
 
 * {
